@@ -1,19 +1,20 @@
 /**
  * Draws the World as a grid of ASCII cells, back to front through a z-buffer:
  *   1. a night sky: indigo gradient, a faint moon, slow-twinkling stars
- *   2. fragrance: a field that diffuses where the pointer passed and fades
- *      over several seconds, so the garden remembers you for a while
+ *   2. click ripples: an ASCII ring drawn with tangent strokes, eased outward,
+ *      followed by a fainter echo
  *   3. fallen petals gathering along the ground, slowly fading
  *   4. trellis vines, leaf sprays, and racemes: each floret is a small blob
  *      shaded by the moonbeam, darkened at its rim so petals read as
  *      separate; far racemes are drawn soft and sparse like out-of-focus bokeh
  *   5. falling petals, tumbling through four glyphs
+ *   6. fragrance motes behind the pointer, cooling from a bright `*` to a
+ *      faint `.` as they drift; they also warm the florets they pass
  */
 import { clamp, hash3, mixRGB, ramp, smoothstep, TAU, type RGB } from "./math";
 import { MOONLIGHT, type Palette } from "./palette";
-import { PetalState, type Chain, type Raceme, type Vine, type World } from "./world";
+import { GROUND_ROWS, PetalState, RIPPLE_LIFE, rippleRadius, type Chain, type Raceme, type Vine, type World } from "./world";
 
-const GROUND_ROWS = 3;
 const SUB = [0.25, 0.25, 0.75, 0.25, 0.25, 0.75, 0.75, 0.75];
 const PETAL_GLYPHS = ["'", "`", ",", "."];
 /** Florets, dim → bright. */
@@ -38,13 +39,11 @@ export class AsciiRenderer {
   private zbuf = new Float32Array(0);
   private energy = new Float32Array(0);
   private energyTmp = new Float32Array(0);
-  private ground = new Float32Array(0);
   private stars: { i: number; phase: number; freq: number; g: string }[] = [];
   private moonCells: { i: number; g: string; a: number }[] = [];
 
   private styleCache = new Map<number, string>();
   private buckets = new Map<number, number[]>();
-  private lastPtr = { x: 0, y: 0, has: false };
   private q = { x: 0, y: 0, tx: 0, ty: 1 };
   private world: World | null = null;
 
@@ -91,7 +90,6 @@ export class AsciiRenderer {
     this.zbuf = new Float32Array(n);
     this.energy = new Float32Array(n);
     this.energyTmp = new Float32Array(n);
-    this.ground = new Float32Array(this.cols * GROUND_ROWS);
 
     this.moonCells = [];
     this.stars = [];
@@ -166,7 +164,7 @@ export class AsciiRenderer {
       this.world = world;
       this.buildMoon(world);
     }
-    this.consumeEvents(world, dt);
+    this.warm(world, dt);
     this.diffuse(dt);
 
     this.glyph.fill("");
@@ -174,13 +172,14 @@ export class AsciiRenderer {
 
     const reveal = world.introDone ? 1 : smoothstep(0, 3, world.clock);
     this.drawSky(world, reveal);
-    this.drawFragrance();
+    this.drawRipples(world);
     this.drawGround(world);
     this.drawFore(world);
     for (const v of world.vines) this.drawVine(world, v);
     for (const l of world.leaves) this.drawLeaf(world, l);
     for (const r of world.racemes) this.drawRaceme(world, r);
     this.drawPetals(world);
+    this.drawMotes(world);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bg, 0, 0);
@@ -255,45 +254,20 @@ export class AsciiRenderer {
     }
   }
 
-  private consumeEvents(world: World, dt: number) {
-    for (const e of world.events) {
-      if (e.kind === "shake") {
-        this.stamp(this.energy, e.x, e.y, 5, 0.7);
-      } else {
-        const c = Math.floor(e.x / this.cw);
-        for (const [dc, amt] of [[0, 0.55], [-1, 0.18], [1, 0.18]]) {
-          const cc = c + dc;
-          if (cc < 0 || cc >= this.cols) continue;
-          // Fill the lowest row first, then heap upward.
-          let row = 0;
-          while (row < GROUND_ROWS - 1 && this.ground[row * this.cols + cc] > 1.1 + row * 0.2) row++;
-          const i = row * this.cols + cc;
-          this.ground[i] = Math.min(1.6, this.ground[i] + amt);
-        }
+  /** Fragrance and ripples warm the florets they pass; the glow lingers in a field. */
+  private warm(world: World, dt: number) {
+    const k = Math.min(1, dt * 60);
+    for (const m of world.motes) {
+      if (m.alive) this.stamp(this.energy, m.x, m.y, 0, 0.012 * (1 - m.age / m.life) * k);
+    }
+    for (const rp of world.ripples) {
+      const r = rippleRadius(rp);
+      const strength = 1 - rp.age / RIPPLE_LIFE;
+      const step = (this.cw * 2) / Math.max(r, this.cw);
+      for (let a = 0; a < TAU; a += step) {
+        this.stamp(this.energy, rp.x + Math.cos(a) * r, rp.y + Math.sin(a) * r, 0, 0.05 * strength * k);
       }
     }
-    world.events.length = 0;
-
-    // The pointer leaves fragrance along its whole path, not just where it was sampled.
-    const p = world.pointer;
-    const speed = Math.hypot(p.vx, p.vy);
-    if (p.active && speed > 12) {
-      const amount = 0.2 * Math.min(1, speed / 400) * Math.min(1, dt * 60);
-      if (this.lastPtr.has) {
-        const dx = p.x - this.lastPtr.x;
-        const dy = p.y - this.lastPtr.y;
-        const steps = Math.min(30, Math.ceil(Math.hypot(dx, dy) / this.cw));
-        for (let s = 1; s <= steps; s++) {
-          this.stamp(this.energy, this.lastPtr.x + (dx * s) / steps, this.lastPtr.y + (dy * s) / steps, 1, amount);
-        }
-      } else {
-        this.stamp(this.energy, p.x, p.y, 1, amount);
-      }
-    }
-    this.lastPtr.x = p.x;
-    this.lastPtr.y = p.y;
-    this.lastPtr.has = p.active;
-
     // Lingering petals glow faintly around themselves.
     for (const pt of world.petals) {
       if (pt.alive && pt.state === PetalState.Linger) this.stamp(this.energy, pt.x, pt.y, 0, 0.004);
@@ -302,7 +276,7 @@ export class AsciiRenderer {
 
   /** Slow blur + slow decay: the trail spreads a little and lingers ~8 s. */
   private diffuse(dt: number) {
-    const { cols, rows, energy, energyTmp: tmp, ground } = this;
+    const { cols, rows, energy, energyTmp: tmp } = this;
     const decay = Math.exp(-dt * 0.3);
     // Spread per neighbour, scaled by time so the blur doesn't depend on frame rate.
     const k = Math.min(0.2, dt * 0.25);
@@ -318,8 +292,6 @@ export class AsciiRenderer {
     }
     this.energy = tmp;
     this.energyTmp = energy;
-    const fade = Math.exp(-dt / 55);
-    for (let i = 0; i < ground.length; i++) ground[i] *= fade;
   }
 
   /** Scene light at (x, y): the moonbeam, plus the pointer as a small lantern. */
@@ -351,18 +323,78 @@ export class AsciiRenderer {
     }
   }
 
-  private drawFragrance() {
-    const { energy, cols, palette: P } = this;
-    for (let i = 0; i < energy.length; i++) {
-      const e = energy[i];
-      if (e < 0.015) continue;
-      const g = e < 0.1 ? "." : e < 0.28 ? ":" : ";";
-      this.put(i % cols, (i / cols) | 0, g, P.fragrance, Math.min(0.6, 0.08 + e * 2.2), 0.05);
+  /**
+   * Each click ring is drawn with strokes that follow its tangent, so it reads
+   * as a drawn circle rather than a cloud. It starts silver and cools to
+   * violet, shimmers a little along its length, and leaves a fainter echo.
+   */
+  private drawRipples(world: World) {
+    const { palette: P, cw, ch } = this;
+    for (const rp of world.ripples) {
+      const t = rp.age / RIPPLE_LIFE;
+      const r = rippleRadius(rp);
+      const color = mixRGB(P.moon, P.fragrance, smoothstep(0, 0.7, t));
+      const alpha = Math.pow(1 - t, 1.6) * 0.6;
+      if (r > cw) {
+        const step = (cw * 0.55) / r;
+        for (let a = 0; a < TAU; a += step) {
+          const cs = Math.cos(a);
+          const sn = Math.sin(a);
+          // Brush-like breaks and a slow shimmer along the ring.
+          if (hash3((a * 40) | 0, 0, 77) < 0.12) continue;
+          const shimmer = 0.75 + 0.25 * Math.sin(a * 5 + rp.age * 3);
+          const x = rp.x + cs * r;
+          const y = rp.y + sn * r;
+          this.putPx(x, y, this.strokeGlyph(-sn, cs), color, alpha * shimmer, 0.88);
+          // A soft wake just inside the front.
+          this.putPx(rp.x + cs * (r - ch * 0.7), rp.y + sn * (r - ch * 0.7), ".", color, alpha * 0.35 * shimmer, 0.87);
+        }
+      }
+      // The echo: a second, dotted ring a beat behind.
+      const echoAge = rp.age - 0.4;
+      if (echoAge > 0) {
+        const re = rippleRadius(rp, echoAge) * 0.8;
+        const te = echoAge / RIPPLE_LIFE;
+        if (re > cw) {
+          const step = (cw * 0.9) / re;
+          for (let a = 0; a < TAU; a += step) {
+            this.putPx(rp.x + Math.cos(a) * re, rp.y + Math.sin(a) * re, ":", P.fragrance, Math.pow(1 - te, 1.8) * 0.4, 0.86);
+          }
+        }
+      }
+      // A brief spark where the click landed.
+      if (rp.age < 0.5) {
+        const k = 1 - rp.age / 0.5;
+        this.putPx(rp.x, rp.y, rp.age < 0.18 ? "*" : "+", P.moon, k * k, 1.3);
+      }
+    }
+  }
+
+  private drawMotes(world: World) {
+    const { palette: P } = this;
+    const pale = mixRGB(P.petal[4], P.moon, 0.4);
+    const t = world.time;
+    for (const m of world.motes) {
+      if (!m.alive) continue;
+      const life = m.age / m.life;
+      // Heat cools with age, so the trail runs * → + → : → . from head to tail.
+      const heat = m.bright * Math.exp(-m.age * 0.95);
+      const a = smoothstep(0, 0.05, life) * Math.pow(1 - life, 1.2) * (0.55 + 0.45 * Math.min(1, heat * 1.6));
+      // Now and then a grain catches the moonlight.
+      const glint = hash3(m.seed | 0, Math.floor(t * 4), 9) > 0.985;
+      let g = heat > 0.78 ? "*" : heat > 0.5 ? "+" : heat > 0.26 ? ":" : ".";
+      let col = heat > 0.5 ? mixRGB(pale, P.fragrance, (1 - heat) * 1.6) : mixRGB(P.fragrance, P.petal[1], 1 - heat * 2);
+      if (glint) {
+        g = "*";
+        col = P.moon;
+      }
+      this.putPx(m.x, m.y, g, col, glint ? Math.max(a, 0.7) : a * 0.95, 1.05);
     }
   }
 
   private drawGround(world: World) {
-    const { ground, cols, rows, palette: P, cw, ch } = this;
+    const { rows, palette: P, cw, ch } = this;
+    const { ground, groundCols: cols } = world;
     for (let row = 0; row < GROUND_ROWS; row++) {
       for (let c = 0; c < cols; c++) {
         const v = ground[row * cols + c];

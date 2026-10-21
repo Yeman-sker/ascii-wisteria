@@ -50,7 +50,7 @@ new WisteriaEngine(canvas); // give the canvas a monospace font-family
 | | |
 |---|---|
 | **浪漫 Romance** | Everything is slow: racemes swing on a 4–7 s rhythm, petals fall at walking pace. Two old vines twist around each other along the trellis. 一切都慢；两根老藤沿着花架彼此缠绕。 |
-| **思念 Longing** | The fragrance trail lingers ~8 s after you pass. Fallen petals pile up and fade over a minute. Now and then a petal stops mid-air for a moment, as if looking back. A low moon sits in the empty lower right — 望月怀人. 余香久久不散，落花慢慢堆积，偶有一片停在半空回望；右下留白处一轮低月。 |
+| **思念 Longing** | Your cursor leaves a thread of fragrance that rises and curls like incense, cooling from `*` to `.` over a few seconds. Fallen petals pile up and fade over a minute. Now and then a petal stops mid-air for a moment, as if looking back. A low moon sits in the empty lower right — 望月怀人. 鼠标留下一缕暗香，像焚香的烟一样上浮、打旋，由 `*` 渐渐冷却成 `.`；落花慢慢堆积，偶有一片停在半空回望；右下留白处一轮低月。 |
 | **高贵 · 冷静 Noble, calm** | One blue-violet ramp carries the scene; leaves and bark are pushed to grey-lavender so nothing competes with it. The only accent is moonlight. 一条蓝紫色阶撑起全局，叶与枝都压成灰紫，唯一的点缀是月光。 |
 
 Composition follows a night photograph of wisteria: a few large, sharp racemes
@@ -64,8 +64,8 @@ blurred vine framing the lower-left corner. 构图取自一张夜间紫藤照片
 
   ![blooming](docs/blooming.png)
 
-- **Breeze 微风**: move the cursor through the curtain to push the racemes aside; they swing back. The cursor is also a small lantern: florets near it brighten. 鼠标穿过花帘会把花串推开、再荡回来；鼠标也是一盏小灯，靠近处的花会亮起。
-- **Shake 摇落**: click to shake loose a handful of petals. 点击摇落一把花瓣。
+- **Fragrance 暗香**: the cursor is a breeze, pushing racemes aside as it passes, and a small lantern that lights the florets near it. Behind it, evenly spaced motes inherit a little of its speed, then slow, rise and curl, with fainter wisps feathering off to the sides. Florets they drift past warm up for a moment. 鼠标是一阵风，也是一盏小灯；身后留下均匀的香气微粒，继承一点鼠标的速度后慢下来、上浮、打旋，两侧还散出更淡的烟丝；经过的花会被短暂映亮。
+- **Ripple 涟漪**: a click sends out a drawn ASCII ring that eases outward over ~3 s, with a dotted echo a beat behind. Racemes swing and shed petals only when the ring reaches them, and fallen petals it passes over flutter back up — one wave spreading through the scene. 点击发出一圈用笔画字符画成的涟漪，约 3 秒缓缓扩散，后面跟着一圈虚线回声；涟漪扫到哪串花，哪串才摆动、落瓣，扫过地面会惊起积花。
 - **Poem 诗**: once in a long while, falling petals gather into a line of Li Bai's *紫藤树*, hold it for a few breaths, and let it go. 很久才有一次，落花聚成李白《紫藤树》中的一句，停留几息，又散去。
 
   ![poem](docs/poem.png)
@@ -102,8 +102,8 @@ The poem needs room: each character must be at least 8 cell rows tall, so on nar
 
 Three layers, same shape as [ascii-sharks](https://github.com/stackedlol/ascii-sharks), which inspired this:
 
-- **`world.ts` — physics in pixels.** Each raceme is a 14-node verlet chain pinned to the trellis, with a little bending stiffness so it swings as a whole. Florets hang off it in alternating pairs, big and dense at the top, sparse toward the tip. Wind is two slow swells plus gusts on a ~40 s rhythm; the pointer's velocity pushes nearby nodes. Petals tumble (spin drives a side-slip), drift on the wind, and land.
-- **`renderer.ts` — cells and fields.** A z-buffered character grid. Each floret is an ellipse rasterised with 4 sub-samples per cell, shaded by the moonbeam and a fixed light direction, and darkened at its rim so neighbouring petals read as separate shapes. Glyphs come from one monotone ramp ` .:;=o*%8&@`, nudged by a per-floret hash so the texture stays stable as florets move. Far racemes use only `.:;` at low alpha — ASCII bokeh. The fragrance trail is a scalar field with a slow, frame-rate-independent blur and decay; fallen petals are another field along the bottom rows.
+- **`world.ts` — physics in pixels.** Each raceme is a 14-node verlet chain pinned to the trellis, with a little bending stiffness so it swings as a whole. Florets hang off it in alternating pairs, big and dense at the top, sparse toward the tip. Wind is two slow swells plus gusts on a ~40 s rhythm; the pointer's velocity pushes nearby nodes. Petals tumble (spin drives a side-slip), drift on the wind, and land in a ground field. A ripple's front pushes the chain nodes it crosses, so swings propagate outward; it also sheds petals from the racemes it reaches and lifts fallen ones from the ground.
+- **`renderer.ts` — cells and fields.** A z-buffered character grid. Each floret is an ellipse rasterised with 4 sub-samples per cell, shaded by the moonbeam and a fixed light direction, and darkened at its rim so neighbouring petals read as separate shapes. Glyphs come from one monotone ramp ` .:;=o*%8&@`, nudged by a per-floret hash so the texture stays stable as florets move. Far racemes use only `.:;` at low alpha — ASCII bokeh. Fragrance motes pick a glyph from their "heat", which decays with age. They also warm a slow, frame-rate-independent glow field, which brightens the florets they pass. Ripple rings are sampled by angle and drawn with tangent strokes (`- \ | /`).
 - **`poem.ts` — text to cells.** A line is drawn 4× supersampled per cell on a scratch canvas; cells above 30% coverage become targets, and petals steer onto them with a critically damped spring.
 
 ## Skill

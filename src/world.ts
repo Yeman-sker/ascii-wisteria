@@ -11,6 +11,14 @@
  * settle on the ground. Now and then one pauses mid-air for a moment, as if
  * looking back.
  *
+ * Fragrance: the pointer leaves motes behind, evenly spaced along its path.
+ * Each inherits a little of the pointer's speed, slows, rises and curls like
+ * incense, and fades out over a few seconds.
+ *
+ * Ripple: a click sends a ring outward. Racemes swing and shed petals only
+ * when the ring reaches them, and fallen petals it passes over are lifted
+ * back into the air, so a click reads as one wave spreading through the scene.
+ *
  * Poem: once in a long while, falling petals gather into a line of verse,
  * hold it for a few breaths, and let it go.
  *
@@ -24,6 +32,10 @@ const LEAF_NODES = 6;
 const GRAVITY = 1400;
 const DAMPING = 0.988;
 const MAX_PETALS = 900;
+const MAX_MOTES = 520;
+export const GROUND_ROWS = 3;
+/** Seconds a ripple takes to spread out and vanish. */
+export const RIPPLE_LIFE = 3.2;
 
 export interface Floret {
   /** Position along the stem, 0 top → 1 tip. */
@@ -107,10 +119,36 @@ export interface Petal {
   alive: boolean;
 }
 
-export interface WorldEvent {
-  kind: "land" | "shake";
+/** A grain of fragrance left behind by the pointer. */
+export interface Mote {
   x: number;
   y: number;
+  vx: number;
+  vy: number;
+  age: number;
+  life: number;
+  seed: number;
+  /** 1 for the core of the trail, less for the wisps around it. */
+  bright: number;
+  alive: boolean;
+}
+
+export interface Ripple {
+  x: number;
+  y: number;
+  age: number;
+  /** Final radius, px. */
+  reach: number;
+  /** Front radius on the previous step, to detect what the ring just crossed. */
+  last: number;
+  /** Racemes this ripple has already shaken petals from. */
+  shed: Set<Raceme>;
+}
+
+/** The ring's front radius at a given age: fast at first, settling like water. */
+export function rippleRadius(r: Ripple, age = r.age) {
+  const t = Math.min(1, age / RIPPLE_LIFE);
+  return r.reach * (1 - Math.pow(1 - t, 2.2));
 }
 
 export interface WorldOptions {
@@ -148,7 +186,13 @@ export class World {
   /** Out-of-focus framing in the lower-left corner. */
   fore: { vine: Vine; blooms: { x: number; y: number; r: number }[]; leaves: { x: number; y: number; len: number; angle: number }[] } | null = null;
   petals: Petal[] = [];
-  events: WorldEvent[] = [];
+  motes: Mote[] = [];
+  ripples: Ripple[] = [];
+  /** Fallen petals per ground cell, bottom row first: GROUND_ROWS × groundCols. */
+  ground = new Float32Array(0);
+  groundCols = 0;
+  cellW = 10;
+  cellH = 15;
   pointer = { x: 0, y: 0, vx: 0, vy: 0, active: false };
   /** Where the moonbeam falls; drifts slowly. */
   light = { x: 0, y: 0 };
@@ -160,6 +204,8 @@ export class World {
   poem = { phase: "idle" as "idle" | "gather" | "hold", next: 0, until: 0, index: 0 };
 
   private lastPointer = { x: 0, y: 0, has: false };
+  /** Distance the pointer has travelled since it last left a mote. */
+  private emitAcc = 0;
   private opts: Required<WorldOptions>;
   private groundY = 0;
 
@@ -197,6 +243,13 @@ export class World {
     this.width = width;
     this.height = height;
     this.groundY = height - cellH * 1.5;
+    this.cellW = cellW;
+    this.cellH = cellH;
+    const cols = Math.ceil(width / cellW);
+    if (cols !== this.groundCols) {
+      this.groundCols = cols;
+      this.ground = new Float32Array(cols * GROUND_ROWS);
+    }
     if (first || Math.abs(sx - 1) > 0.15 || this.racemes.length === 0) {
       this.seed(cellW, cellH);
       return;
@@ -345,25 +398,16 @@ export class World {
   }
 
   splash(x: number, y: number) {
-    if (!this.introDone) {
-      this.skipIntro();
-      return;
+    if (!this.introDone) this.skipIntro();
+    const reach = Math.max(this.width, this.height) * 0.34;
+    this.ripples.push({ x, y, age: 0, reach, last: 0, shed: new Set() });
+    if (this.ripples.length > 4) this.ripples.shift();
+    // A small burst of fragrance at the centre, thrown outward and left to drift.
+    for (let i = 0; i < 14; i++) {
+      const a = (i / 14) * TAU + rand(-0.2, 0.2);
+      const v = rand(50, 120);
+      this.emitMote(x, y, Math.cos(a) * v, Math.sin(a) * v * 0.7, rand(1.6, 3), 0.8);
     }
-    // Shake the nearby racemes and let a handful of petals go.
-    for (const r of this.racemes) {
-      for (let k = 1; k < r.count; k++) {
-        const dx = r.nodes[k * 2] - x;
-        const dy = r.nodes[k * 2 + 1] - y;
-        const d = Math.hypot(dx, dy);
-        if (d > 220) continue;
-        const f = (1 - d / 220) * 7 * (k / r.count);
-        r.prev[k * 2] -= (dx / (d || 1)) * f + rand(-1, 1);
-        r.prev[k * 2 + 1] -= (dy / (d || 1)) * f * 0.4;
-      }
-      const tipD = Math.hypot(r.nodes[(r.count - 1) * 2] - x, r.nodes[(r.count - 1) * 2 + 1] - y);
-      if (tipD < 260) for (let i = 0; i < 5; i++) this.spawnPetalFrom(r);
-    }
-    this.events.push({ kind: "shake", x, y });
   }
 
   step(dt: number) {
@@ -381,13 +425,18 @@ export class World {
 
     this.updatePointer(dt);
     this.updateIntro();
+    this.stepRipples(dt);
 
     for (const r of this.racemes) this.stepChain(r, dt, 1);
     for (const l of this.leaves) this.stepChain(l, dt, 0.7);
 
     this.spawnPetals(dt);
     this.stepPetals(dt);
+    this.stepMotes(dt);
     this.stepPoem();
+
+    const fade = Math.exp(-dt / 55);
+    for (let i = 0; i < this.ground.length; i++) this.ground[i] *= fade;
   }
 
   private updatePointer(dt: number) {
@@ -399,10 +448,11 @@ export class World {
       return;
     }
     if (this.lastPointer.has) {
-      const vx = (p.x - this.lastPointer.x) / dt;
-      const vy = (p.y - this.lastPointer.y) / dt;
-      p.vx += (vx - p.vx) * 0.25;
-      p.vy += (vy - p.vy) * 0.25;
+      const dx = p.x - this.lastPointer.x;
+      const dy = p.y - this.lastPointer.y;
+      p.vx += (dx / dt - p.vx) * 0.25;
+      p.vy += (dy / dt - p.vy) * 0.25;
+      this.emitAlong(this.lastPointer.x, this.lastPointer.y, dx, dy);
     }
     this.lastPointer.x = p.x;
     this.lastPointer.y = p.y;
@@ -444,6 +494,18 @@ export class World {
           ax += clamp(p.vx * 6, -4200, 4200) * f;
           ay += clamp(p.vy * 3, -2000, 2000) * f;
         }
+      }
+      for (const rp of this.ripples) {
+        // Only the ring's front pushes, so the swing travels outward with it.
+        const dx = x - rp.x;
+        const dy = y - rp.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const front = 1 - Math.abs(d - rippleRadius(rp)) / (this.cellW * 4);
+        if (front <= 0) continue;
+        const t = rp.age / RIPPLE_LIFE;
+        const f = front * front * 3200 * (1 - t) * (1 - t) * parallax * (k / count);
+        ax += (dx / d) * f;
+        ay += (dy / d) * f * 0.35;
       }
       const vx = (x - prev[i]) * DAMPING;
       const vy = (y - prev[i + 1]) * DAMPING;
@@ -498,6 +560,149 @@ export class World {
     out.tx = (x1 - x0) / len;
     out.ty = (y1 - y0) / len;
     return out;
+  }
+
+  // ── fragrance ───────────────────────────────────────────────────────
+
+  private emitMote(x: number, y: number, vx: number, vy: number, life: number, bright = 1) {
+    let m: Mote | undefined;
+    for (const q of this.motes) {
+      if (!q.alive) {
+        m = q;
+        break;
+      }
+    }
+    if (!m) {
+      if (this.motes.length >= MAX_MOTES) return;
+      m = {} as Mote;
+      this.motes.push(m);
+    }
+    m.x = x;
+    m.y = y;
+    m.vx = vx;
+    m.vy = vy;
+    m.age = 0;
+    m.life = life;
+    m.seed = Math.random() * 1000;
+    m.bright = bright;
+    m.alive = true;
+  }
+
+  /** Leave motes at even spacing along the pointer's path, however fast it moves. */
+  private emitAlong(x0: number, y0: number, dx: number, dy: number) {
+    const dist = Math.hypot(dx, dy);
+    if (dist < 0.5 || dist > 400) return;
+    const spacing = this.cellW * 0.85;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const speed = Math.hypot(this.pointer.vx, this.pointer.vy);
+    let along = spacing - this.emitAcc;
+    const push = 0.4 + Math.min(1, speed / 900);
+    while (along <= dist) {
+      const px = x0 + ux * along;
+      const py = y0 + uy * along;
+      // The core strand: on the path, carrying a little of the pointer's momentum.
+      const side = rand(-1, 1) * this.cellH * 0.2;
+      this.emitMote(px - uy * side, py + ux * side, ux * speed * 0.05, uy * speed * 0.05, rand(3.2, 4.8), 1);
+      // Wisps that drift off to either side, so the trail feathers like smoke.
+      if (Math.random() < 0.65) {
+        const s = Math.random() < 0.5 ? -1 : 1;
+        const off = rand(0.5, 1.3) * this.cellH * s;
+        this.emitMote(px - uy * off, py + ux * off, -uy * s * 18 * push + ux * speed * 0.03, ux * s * 18 * push + uy * speed * 0.03, rand(1.8, 3.2), rand(0.4, 0.65));
+      }
+      along += spacing;
+    }
+    this.emitAcc = dist - (along - spacing);
+  }
+
+  private stepMotes(dt: number) {
+    const t = this.time;
+    const drag = Math.exp(-dt * 1.7);
+    for (const m of this.motes) {
+      if (!m.alive) continue;
+      m.age += dt;
+      if (m.age >= m.life) {
+        m.alive = false;
+        continue;
+      }
+      // Rise slowly and curl, the way scent hangs in still air.
+      m.vx = m.vx * drag + Math.sin(m.y * 0.018 + t * 0.6 + m.seed) * 14 * dt + this.windAt(m.x, m.y, t) * 0.04 * dt;
+      m.vy = m.vy * drag + (Math.cos(m.x * 0.014 + t * 0.5 + m.seed) * 9 - 9) * dt;
+      m.x += m.vx * dt;
+      m.y += m.vy * dt;
+    }
+  }
+
+  // ── ripples and the ground ──────────────────────────────────────────
+
+  private stepRipples(dt: number) {
+    for (const rp of this.ripples) {
+      rp.last = rippleRadius(rp);
+      rp.age += dt;
+      const r = rippleRadius(rp);
+      const strength = 1 - rp.age / RIPPLE_LIFE;
+      if (strength <= 0) continue;
+
+      // Shake petals loose from each raceme as the ring reaches its middle.
+      for (const rc of this.racemes) {
+        if (rp.shed.has(rc) || rc.bloom < 0.3) continue;
+        const q = this.pointOn(rc, 0.35, this.tmp);
+        const d = Math.hypot(q.x - rp.x, q.y - rp.y);
+        if (d > r) continue;
+        rp.shed.add(rc);
+        const n = Math.round((1 + 4 * strength) * rc.depth);
+        for (let i = 0; i < n; i++) this.spawnPetalFrom(rc);
+      }
+
+      // Lift fallen petals the ring sweeps over; they flutter up and settle again.
+      const { cellW: cw, cellH: ch, groundCols: cols, ground } = this;
+      for (let row = 0; row < GROUND_ROWS; row++) {
+        const y = this.height - (row + 0.5) * ch;
+        for (let c = 0; c < cols; c++) {
+          const gi = row * cols + c;
+          if (ground[gi] < 0.2) continue;
+          const x = (c + 0.5) * cw;
+          const d = Math.hypot(x - rp.x, y - rp.y);
+          if (d <= rp.last || d > r) continue;
+          const lift = Math.min(ground[gi], 0.4 + 0.6 * strength);
+          ground[gi] -= lift;
+          if (Math.random() < lift * 0.9) this.liftPetal(x, y, (x - rp.x) / (d || 1), strength);
+        }
+      }
+    }
+    this.ripples = this.ripples.filter((rp) => rp.age < RIPPLE_LIFE);
+  }
+
+  private landPetal(x: number) {
+    const { groundCols: cols, ground } = this;
+    const c = Math.floor(x / this.cellW);
+    for (const [dc, amt] of [[0, 0.55], [-1, 0.18], [1, 0.18]]) {
+      const cc = c + dc;
+      if (cc < 0 || cc >= cols) continue;
+      // Fill the lowest row first, then heap upward.
+      let row = 0;
+      while (row < GROUND_ROWS - 1 && ground[row * cols + cc] > 1.1 + row * 0.2) row++;
+      const i = row * cols + cc;
+      ground[i] = Math.min(1.6, ground[i] + amt);
+    }
+  }
+
+  private liftPetal(x: number, y: number, dir: number, strength: number) {
+    const p = this.newPetal();
+    if (!p) return;
+    p.x = x;
+    p.y = Math.min(y, this.groundY) - this.cellH;
+    p.vx = dir * rand(20, 60) * strength;
+    p.vy = -rand(50, 110) * (0.5 + strength);
+    p.phase = rand(0, TAU);
+    p.spin = rand(3, 6) * (Math.random() < 0.5 ? -1 : 1);
+    p.depth = rand(0.6, 1);
+    p.state = PetalState.Fall;
+    p.timer = 0;
+    p.willLinger = false;
+    p.tx = 0;
+    p.ty = 0;
+    p.alive = true;
   }
 
   // ── petals ──────────────────────────────────────────────────────────
@@ -613,9 +818,9 @@ export class World {
         p.timer = rand(2.4, 4);
       }
 
-      if (p.y >= this.groundY + rand(-4, 6)) {
+      if (p.vy > 0 && p.y >= this.groundY + rand(-4, 6)) {
         p.alive = false;
-        if (p.state === PetalState.Fall) this.events.push({ kind: "land", x: p.x, y: p.y });
+        if (p.state === PetalState.Fall) this.landPetal(p.x);
       } else if (p.x < -40 || p.x > this.width + 40) {
         p.alive = false;
       }
