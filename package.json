@@ -1,0 +1,24 @@
+{
+  "name": "ascii-wisteria",
+  "version": "0.1.0",
+  "description": "Wisteria drawn as ASCII on a canvas: a moonlit curtain of racemes that sway, shed petals and remember where you passed. Zero dependencies.",
+  "license": "MIT",
+  "type": "module",
+  "main": "src/index.ts",
+  "keywords": ["ascii", "canvas", "wisteria", "generative-art", "animation"],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18"
+  },
+  "peerDependenciesMeta": {
+    "react": { "optional": true }
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^6.0.0"
+  }
+}
