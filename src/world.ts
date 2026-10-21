@@ -40,7 +40,8 @@ export const RIPPLE_LIFE = 3.2;
 export interface Floret {
   /** Position along the stem, 0 top → 1 tip. */
   s: number;
-  side: 1 | -1;
+  /** Which way it hangs: out to the left or right, or toward the viewer (0). */
+  side: 1 | 0 | -1;
   /** Radius scale, 1 at the top of the raceme. */
   size: number;
   phase: number;
@@ -295,48 +296,62 @@ export class World {
       return p[i * 2 + 1];
     };
 
-    // Racemes in three depth layers. The curtain's lower edge undulates
-    // (smooth noise over x) and never reaches the lower ~40%, which stays
-    // open for falling petals and the poem.
+    // Composition after a night photograph: two or three large, sharp racemes
+    // in the moonbeam with dark air between them, a few mid-distance ones, and
+    // soft out-of-focus ones behind. Sizes are fractions of the height, so the
+    // picture keeps its proportions at any resolution. Tips stop at ~68% of the
+    // height; the open band below is for falling petals and the poem.
     const lenNoiseSeed = Math.floor(Math.random() * 1000);
-    const layers: { depth: [number, number]; spacing: number; len: [number, number]; width: number }[] = [
-      { depth: [0.36, 0.48], spacing: 10, len: [0.14, 0.3], width: 1.7 },
-      { depth: [0.58, 0.72], spacing: 17, len: [0.2, 0.4], width: 2.3 },
-    ];
-    const addRaceme = (x: number, depth: number, lenRange: [number, number], width: number, vine: Vine) => {
-      const ay = vineYAt(vine, x) + rand(-2, 4);
+    const unit = Math.min(H, W * 1.3);
+    const tipLimit = H * 0.7;
+    const taken: number[] = [];
+    const addRaceme = (x: number, depth: number, len: [number, number], width: number) => {
+      const vine = this.vines[depth < 0.5 ? 2 : Math.random() < 0.5 ? 0 : 1];
+      const ay = vineYAt(vine, x) - rand(0, H * 0.02);
       const n = noise1((x / W) * 4.5, lenNoiseSeed);
-      const len = H * (lenRange[0] + (lenRange[1] - lenRange[0]) * (0.35 + 0.65 * n)) * rand(0.88, 1.1);
-      this.racemes.push(this.makeRaceme(x, ay, Math.min(len, H * 0.58 - ay), width * cw * (0.75 + 0.35 * depth), depth));
+      const length = Math.min(unit * (len[0] + (len[1] - len[0]) * n) * rand(0.92, 1.08), tipLimit - ay);
+      this.racemes.push(this.makeRaceme(x, ay, length, unit * width * rand(0.92, 1.08), depth));
+      taken.push(x);
     };
-    layers.forEach((layer, li) => {
-      const gap = (layer.spacing * cw) / this.opts.density;
-      for (let x = rand(0, gap); x < W + gap * 0.5; x += gap * rand(0.7, 1.3)) {
-        addRaceme(x, rand(layer.depth[0], layer.depth[1]), layer.len, layer.width, this.vines[li === 0 ? 2 : Math.random() < 0.5 ? 0 : 1]);
-      }
-    });
-    // The heroes: a few large, sharp racemes caught in the moonbeam, like the
-    // in-focus pair in a photograph.
-    const heroes = W > 900 ? [0.33, 0.5, 0.66] : W > 520 ? [0.36, 0.62] : [0.5];
-    for (const u of heroes) {
-      addRaceme(W * (u + rand(-0.03, 0.03)), rand(0.9, 1), [0.42, 0.52], W > 520 ? 3.3 : 2.6, this.vines[Math.random() < 0.5 ? 0 : 1]);
+    const clear = (x: number, gap: number) => taken.every((t) => Math.abs(t - x) > gap);
+
+    const heroes = W > 900 ? [0.4, 0.63] : W > 520 ? [0.36, 0.64] : [0.3, 0.7];
+    for (const u of heroes) addRaceme(W * (u + rand(-0.02, 0.02)), rand(0.94, 1), [0.6, 0.68], 0.054);
+    // Mid-distance: smaller, a little dimmer, kept off the heroes so the dark gaps stay open.
+    const mids = Math.round((W / 360) * this.opts.density);
+    for (let i = 0, tries = 0; i < mids && tries < 60; tries++) {
+      const x = rand(0.03, 0.97) * W;
+      if (!clear(x, W * 0.12)) continue;
+      addRaceme(x, rand(0.66, 0.78), [0.3, 0.46], 0.032);
+      i++;
+    }
+    // Far: soft and sparse, drawn as bokeh.
+    const backs = Math.round((W / 300) * this.opts.density);
+    for (let i = 0, tries = 0; i < backs && tries < 80; tries++) {
+      const x = rand(0, 1) * W;
+      if (!clear(x, W * 0.05)) continue;
+      addRaceme(x, rand(0.36, 0.48), [0.18, 0.34], 0.02);
+      i++;
     }
     // Back to front, so the renderer can rely on draw order as well as depth.
     this.racemes.sort((a, b) => a.depth - b.depth);
 
-    // Leaf sprays between the racemes.
-    for (let x = rand(0, cw * 8); x < W; x += cw * rand(9, 18)) {
-      const vine = this.vines[Math.random() < 0.5 ? 0 : 1];
-      const depth = rand(0.45, 0.95);
-      this.leaves.push(this.makeLeaf(x, vineYAt(vine, x), H * rand(0.06, 0.14), depth, cw));
+    // A canopy of pinnate leaves hanging in from the top, thicker toward the
+    // corners, framing the racemes the way the photo's foliage does.
+    const leafCount = Math.round(W / 150);
+    for (let i = 0; i < leafCount; i++) {
+      const u = (i + rand(0.1, 0.9)) / leafCount;
+      const edge = Math.abs(u - 0.5) * 2;
+      const depth = rand(0.5, 0.9);
+      this.leaves.push(this.makeLeaf(u * W, -H * 0.03, unit * (0.12 + 0.16 * edge) * rand(0.8, 1.15), depth, unit));
     }
 
     // Lower-left framing: a blurred vine arcing out of the corner with a
     // couple of open flowers and leaves, like the edge of a lens.
     const pts: number[] = [];
     for (let u = 0; u <= 1.0001; u += 0.01) {
-      const x = -W * 0.04 + W * 0.36 * u;
-      const y = H * (0.72 + 0.3 * u * u) - Math.sin(u * Math.PI) * H * 0.14;
+      const x = -W * 0.04 + W * 0.34 * u;
+      const y = H * (0.66 + 0.36 * u * u) - Math.sin(u * Math.PI) * H * 0.12;
       pts.push(x, y);
     }
     const pt = (u: number) => {
@@ -345,8 +360,8 @@ export class World {
     };
     this.fore = {
       vine: { pts: new Float32Array(pts), thick: 3, depth: 0.3, start: 6, duration: 5 },
-      blooms: [0.38, 0.5].map((u, i) => ({ ...pt(u), r: cw * (2.6 - i * 0.6) })),
-      leaves: [0.05, 0.16, 0.27, 0.62, 0.74].map((u, i) => ({ ...pt(u), len: cw * rand(4, 6.5), angle: (i % 2 ? 1 : -1) * rand(0.6, 1.2) - Math.PI / 2 })),
+      blooms: [0.42, 0.56].map((u, i) => ({ ...pt(u), r: unit * (0.04 - i * 0.008) })),
+      leaves: [0.04, 0.14, 0.25, 0.66, 0.8].map((u, i) => ({ ...pt(u), len: unit * rand(0.09, 0.14), angle: (i % 2 ? 1 : -1) * rand(0.6, 1.2) - Math.PI / 2 })),
     };
   }
 
@@ -364,27 +379,30 @@ export class World {
   private makeRaceme(ax: number, ay: number, length: number, width: number, depth: number): Raceme {
     const chain = this.makeChain(ax, ay, length, depth, RACEME_NODES);
     const florets: Floret[] = [];
-    let s = 0.03;
-    let side: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
-    while (s < 0.97) {
-      const size = 1 - 0.6 * Math.pow(s, 0.9);
-      florets.push({ s, side, size: size * rand(0.85, 1.1), phase: rand(0, TAU), z: rand(0, 0.01) });
-      side = side === 1 ? -1 : 1;
-      // Spacing grows toward the tip: a dense top, a sparse stem below.
-      s += ((width * (0.4 + 0.75 * s)) / length) * rand(0.8, 1.2);
+    let s = 0.02;
+    const flip = Math.random() < 0.5 ? 1 : -1;
+    for (let i = 0; s < 0.97; i++) {
+      const size = 1 - 0.62 * Math.pow(s, 0.85);
+      // Left, right, and on the dense upper part a third facing out, for volume.
+      const front = s < 0.55 && i % 3 === 2;
+      const side = front ? 0 : ((i % 2 ? 1 : -1) * flip) as 1 | -1;
+      florets.push({ s, side, size: size * rand(0.88, 1.08) * (front ? 0.9 : 1), phase: rand(0, TAU), z: rand(0, 0.01) });
+      // Spacing grows toward the tip: a dense, overlapping top, paired florets lower down.
+      s += ((width * (0.2 + 0.75 * s)) / length) * rand(0.85, 1.15);
     }
     return { ...chain, width, bloom: 0, florets, tint: rand(-1, 1) };
   }
 
-  private makeLeaf(ax: number, ay: number, length: number, depth: number, cw: number): Leaf {
+  private makeLeaf(ax: number, ay: number, length: number, depth: number, unit: number): Leaf {
     const chain = this.makeChain(ax, ay, length, depth, LEAF_NODES);
     const leaflets: Leaflet[] = [];
-    for (let s = 0.18; s < 1; s += rand(0.13, 0.19)) {
+    // Pinnate: opposite pairs of lance-shaped leaflets and one at the tip.
+    for (let s = 0.25; s < 0.95; s += rand(0.2, 0.26)) {
       for (const side of [-1, 1] as const) {
-        leaflets.push({ s, side, len: cw * rand(1.6, 2.6) * (1 - s * 0.35), angle: rand(0.5, 0.9) });
+        leaflets.push({ s, side, len: unit * rand(0.06, 0.085) * (1 - s * 0.2), angle: rand(0.45, 0.8) });
       }
     }
-    leaflets.push({ s: 1, side: 1, len: cw * 2, angle: 0 });
+    leaflets.push({ s: 1, side: 1, len: unit * 0.08, angle: 0 });
     return { ...chain, leaflets };
   }
 
@@ -841,7 +859,7 @@ export class World {
       poem.index++;
       const W = this.width;
       const H = this.height;
-      const cells = this.maskProvider(text, { x: W * 0.06, y: H * 0.6, w: W * 0.66, h: H * 0.24 });
+      const cells = this.maskProvider(text, { x: W * 0.06, y: H * 0.7, w: W * 0.66, h: H * 0.2 });
       if (cells.length < 12) {
         // Too small to read at this size; try again later.
         poem.next = this.clock + 60;

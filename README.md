@@ -3,29 +3,51 @@
 English · [简体中文](README.zh-CN.md)
 
 ```
-==~====::::~=~-----=:===o:;~=~--------'/\:**%%%===;   /
-   ::;:==ooo;~~=~=~:oo*%%:::::**:;   --''-=88&o*%8%= '/
-:;:==o;**%%%=      ;*::=:o****==*:=    /\:=o**=888o---/
-==;::::===o*;*%***; :o*%;%%88&o:oo*;   '\'*%8&&o*%%%;o/
-o:;=oo;*%%%%=o*;%o   =%:&=o&oooo%88    '| :oo**;8&&o:8'
-*:o***%:ooo:;%o*%%--:=o*o;8&&o8:o**;----'-;%888o==;;%*
-= ;=%%:=*%**;%:==o  ;%88+=::::o**;o        o::**%88oo
-*  :;==;%88=:=o%=o   =8&**%8%==8o%8       :=**%=&&o*%%
-; :=**%*;    %8;=o  :o*%=8&'@oo***        ;%8&&o;=:o8
-   ;=%=;o*o  ;=%8o  =8&&&:**  8&o**        o****%88=*;
-    :'=:%88  %%;=;    * =*%%%=;=o&'        :o**;&@*'&.
-   ;*%%%::    :=%8   ==o=8&@& %8o          ;8&&&  ;**=
-    =8o;=oo; o%*:   ;%8&o***    :*=         *@%:=oo;
-    ;::*%8%8  oo*%    **=o*;    :|             *8&&o
-   :o*%=8&o    o        %&&o     |          =***@*@%o
-    %8o:;=          :;=; *       o          88@&;==
-      :o%%=     o   *888o        |           **;%8&o
-    ;=o;oo           &@*;=                      o@*
-    *%%=               =8&o                   =o|
-       |:              |                       @|
-       *%=          . o|                        :o
-       |               |                        |
-      o|               |                        |
+  :::,  ,;;:_ _;ooo;:::            ::::_  _:;%@@%;@@::o%%o;
+ ::):: :@@@@%:;@o;o%;:::>         ::: :: _;@@@@@o;;o:@%oo%@
+\::)::::oo:;o;;:o@%;::_::        ::::: :(:@@@@@;@@%o@:;@@o;
+::` ::;@@oo%o;;:%@@@o:::,_       ::: :: `:@@@@o%@;@@;:o@@@@
+`_::::@@@;@;@@:;:o%@%o:::,      ::' ) ::  ::;o%;;@@@o::%@@@
+,:' ::%%%::%@@;;;:;oo;: `|     v' _:::,`  :@@@@;;@@@o:;:o%%
+: ,<:oooo;;%@%;;@@%;:':,         ,:: ):: :@@@@;@:@@%:::%;;;
+_:'::;%%o;o:o;:;@@@@;(`|         ::,:,':::@@@@;%:;o;:@@;o%%
+:` : :::%;:@@o:;;%%%%:          /::::::/:::;oo%:@@@@;;;;:::
+  ::: `:%@;@@%:;;:;oo: v        ,:|::`::;;:@@@;;%@@%:%@@@o:
+  ::: :@@@%;o;;@;;;;::;;;;;     '  ::  ':;;:;:%@;%%::;@@@@%
+  ):` ;@@%:;%@o;;:``::;;;;;        ::    ;;;;:o;@@%%;;;%@@@
+   :  `o%@@:%@%:o@: ::;;;;;        ::    |;;;o%;@@@%;@%;;oo
+      ;@@@%:;%o;o;: `;;;;;;        `      ;;:o%;@@@;o@@@;,
+     )o@@o:;o;oo@@o:  ;;;;;               ;;;@@oo%o;%o@@@:
+      ```  ;%;%%o@%;/ ;;;;                ;:@@@@::ooo@;@%:
+          )@@%;o;oo;  ;;;|                ;:o%oo@;@@%;`''
+       o%%:%@%:;; `   ;;;;                ;;:o@@o:@@%:
+      ;%%o%;%;@@:      ;;;                ;;o@@@%:;%;%o,
+      @@@@;;`:%%;      ;;                  :@@@@::@;;o@o
+     o@@@o:oo;`;`      ;;                  |o%;:o;:@@@;;
+     ;o;: ;%;@;        ;;                     ;@%%:%@@@;
+      ;@@%%@%;         ;;                     oo@@::@@@o(
+      o%%;;@o                                  o@@;%;oo;
+     o@@@;:::                                  ;%;oo%o
+    )%@@o` %o%o                             o@@%;:@@@:
+     ```  );@@;`                           :@%%%@:o@@;
+       o%%)`%@%:                           ;@@@o; `;o:
+      ;%%o; `;o`                          )@@@@ )_o
+      ;@@;;                               `o%;` oo%@;
+      ;o;)oo%;                                  :@@o;
+          ;@o:                              o%@o;%@@(
+        _;:%%:                              %@%%(`oo`
+       %%; `;                              ;@@@:
+       @@;                                 ;@%` o%_
+       ;`|                                     ;%%o
+         o     '                               |o@;
+         `                                    %o o`
+                  `                           %(
+        |                                      (
+        )
+        |                                      (
+        (                                     )
+        (                                     |
+                                              ;
 ```
 
 A moonlit curtain of wisteria drawn as ASCII on a canvas. Racemes sway and
@@ -52,7 +74,7 @@ new WisteriaEngine(canvas); // give the canvas a monospace font-family
 | **Longing** | Your cursor leaves a thread of fragrance that rises and curls like incense, cooling from `*` to `.` over a few seconds. Fallen petals pile up and fade over about a minute. Now and then a petal stops mid-air for a moment, as if looking back. A low moon sits in the empty lower right. |
 | **Noble, calm** | One blue-violet ramp carries the scene. Leaves and bark are pushed to grey-lavender, so nothing competes with it. The only accent is moonlight. |
 
-The composition follows a night photograph of wisteria: a few large, sharp
+The composition follows a night photograph of wisteria: two large, sharp
 racemes caught in a moonbeam, the rest falling away into soft, sparse bokeh,
 and a blurred vine framing the lower-left corner.
 
@@ -98,19 +120,25 @@ The poem needs room: each character must be at least 8 cell rows tall, so narrow
 
 ## How it works
 
-Three layers, the same structure as [ascii-sharks](https://github.com/stackedlol/ascii-sharks), which inspired this project:
+The key idea: **paint the plant as a real illustration first, then turn that picture into glyphs.** If the picture reads as wisteria, the ASCII will too. Choosing glyphs by brightness alone gives purple noise. Shape comes from a few large silhouettes with dark air between them, flat surfaces inside each petal, and outlines that follow the petals.
+
+Like [ascii-sharks](https://github.com/stackedlol/ascii-sharks), which inspired this project, the engine is layered:
 
 - **`world.ts`: physics in pixels.**
-  - Each raceme is a 14-node verlet chain pinned to the trellis. A little bending stiffness makes it swing as a whole, and florets hang off it in alternating pairs: big and dense at the top, sparse toward the tip.
-  - Wind is two slow swells plus gusts on a ~40 s rhythm. The pointer's velocity pushes nearby nodes.
-  - Petals tumble (their spin drives a side-slip), drift on the wind, and land in a ground field.
-  - Only a ripple's front pushes the chain nodes it crosses, so swings travel outward. The ripple also shakes petals from the racemes it reaches and lifts fallen ones off the ground.
-- **`renderer.ts`: cells and fields.**
-  - Drawing goes into a character grid where the nearest layer wins each cell.
-  - Each floret is an ellipse sampled 4 times per cell. It is shaded by the moonbeam and a fixed light direction, and darkened at its rim so neighbouring petals read as separate shapes.
-  - Glyphs come from one ramp, ` .:;=o*%8&@`, nudged by a per-floret hash so the texture stays put as florets move. Far racemes use only `.:;` at low alpha, like out-of-focus bokeh.
-  - Fragrance motes pick a glyph from their "heat", which fades with age. They also feed a slow glow field that lights the florets they pass.
-  - Ripple rings are drawn with strokes that follow the circle (`- \ | /`).
+  - Each raceme is a 14-node verlet chain pinned to a branch. A little bending stiffness makes it swing as a whole.
+  - Florets hang off it to the left, to the right, and (on the dense upper part) toward the viewer. They are big and overlapping at the top and paired lower down, ending in closed buds.
+  - Sizes are fractions of the screen, so the composition holds at any size: two large hero racemes, a few mid-distance ones kept clear of them, soft ones behind, and a canopy of pinnate leaves along the top.
+  - Wind is two slow swells plus gusts on a ~40 s rhythm. The pointer's velocity pushes nearby nodes. Only a ripple's front pushes, so swings travel outward.
+- **`illustrator.ts`: the picture.** Every frame is drawn with vector shapes on an offscreen canvas, at 4 × 6 samples per text cell.
+  - Each floret is a broad banner petal flaring up and back, plus a cupped keel hanging out on a short stalk. Both are lit from the upper left, with a moonlit edge and a dark outline.
+  - Far racemes are soft overlapping discs, which become bokeh.
+  - Leaves are lance-shaped with a midrib.
+- **`renderer.ts`: picture to glyphs.** For each cell, it reads the samples back.
+  - **Flat cells** take a glyph from a short ramp, `.:;o%@`, on a gamma curve, so one petal reads as one surface and colour carries the shading.
+  - **Edge cells** (part-covered, high contrast) are matched by shape against stroke glyphs (`/ \ | ( ) _ ' , ^ v`), so outlines follow the petals.
+  - **Dim cells** become a single soft dot.
+  - Each glyph takes the covered pixels' own colour, brightened as a whole so highlights stay violet.
+  - Moon, stars, falling petals, fragrance motes, ripples and the poem are drawn directly as glyphs on top.
 - **`poem.ts`: text to cells.** A line is drawn at 4× resolution per cell on a scratch canvas. Cells that are more than 30% covered become targets, and petals glide onto them, slowing so they settle without overshooting.
 
 ## Skill

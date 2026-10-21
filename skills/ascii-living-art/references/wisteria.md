@@ -23,7 +23,7 @@ const engine = new WisteriaEngine(canvas, { intro: true });
 | `poem` | Li Bai's 紫藤树, 4 lines | Lines that petals gather into, shown in order. `false` disables. Custom lines: keep them to ≤7 CJK characters, or short Latin words. |
 | `poemDelay` | `45` | Seconds after the intro before the first poem. |
 | `poemEvery` | `[150, 260]` | Random gap between poems, in seconds. |
-| `density` | `1` | Background and mid-layer racemes per width. The hero racemes are fixed (3 on wide screens, 2 on medium, 1 on narrow). |
+| `density` | `1` | Background and mid-layer racemes per width. The two hero racemes are always placed. |
 | `wind` | `1` | Scales all wind forces. |
 | `palette` | `MOONLIGHT` | Partial override; see `src/palette.ts`. |
 
@@ -31,13 +31,19 @@ const engine = new WisteriaEngine(canvas, { intro: true });
 
 | Want | Change |
 |---|---|
-| Brighter or darker flowers | the `tone` gain in `drawRaceme` (renderer), or the `petal` stops in the palette |
-| Bigger or longer hero racemes | `heroes` and the hero `addRaceme(..., [0.42, 0.52], 3.3, ...)` call in `World.seed` |
-| Denser florets low on the raceme | the spacing formula in `makeRaceme`: `width * (0.4 + 0.75 * s)` |
+| Brighter or darker flowers | the `tone` line in `Illustrator.drawRaceme`, or the `petal` stops in the palette |
+| Bigger or longer hero racemes | `heroes` and the hero `addRaceme(..., [0.6, 0.68], 0.054)` call in `World.seed` (length and width are fractions of `unit`) |
+| More or fewer florets | the spacing formula in `makeRaceme`: `width * (0.2 + 0.75 * s)` |
+| Petal shape | the banner and keel ellipses in `Illustrator.drawRaceme` |
+| Glyph choice | `FILL` and `STROKES` in `renderer.ts`, and the edge test in `convert()` |
+| Finer or coarser ASCII | `cw` in `AsciiRenderer.resize` (`width / 175`, clamped 6–10) |
 | A trail that lingers longer | `decay` and `k` in `AsciiRenderer.diffuse` |
 | More or fewer falling petals | `rate` in `World.spawnPetals` |
 | Moon position | `this.moon` in `World.seed`; keep it clear of the poem area (`stepPoem`'s mask area) |
 | A different mood, e.g. dusk | a new palette: warmer `skyTop`, pinker `petal` highlights, a gold `moon` |
+
+To see the illustration without the glyph conversion, run this in the console:
+`const i = wisteria.renderer.illustrator.canvas, c = document.querySelector("canvas"); c.getContext("2d").drawImage(i, 0, 0, c.width, c.height)`
 
 ## Verifying changes
 

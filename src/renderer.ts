@@ -4,22 +4,25 @@
  *   2. click ripples: an ASCII ring drawn with tangent strokes, eased outward,
  *      followed by a fainter echo
  *   3. fallen petals gathering along the ground, slowly fading
- *   4. trellis vines, leaf sprays, and racemes: each floret is a small blob
- *      shaded by the moonbeam, darkened at its rim so petals read as
- *      separate; far racemes are drawn soft and sparse like out-of-focus bokeh
+ *   4. the plant itself, painted as a vector illustration (illustrator.ts) and
+ *      converted cell by cell: flat cells take a glyph from a short density
+ *      ramp and let colour carry the shading; cells that hold an edge are
+ *      matched by shape against stroke glyphs (`/ \ | ( ) _ ' ,`), so outlines
+ *      follow the petals instead of dissolving into texture
  *   5. falling petals, tumbling through four glyphs
  *   6. fragrance motes behind the pointer, cooling from a bright `*` to a
  *      faint `.` as they drift; they also warm the florets they pass
  */
 import { clamp, hash3, mixRGB, ramp, smoothstep, TAU, type RGB } from "./math";
 import { MOONLIGHT, type Palette } from "./palette";
-import { GROUND_ROWS, PetalState, RIPPLE_LIFE, rippleRadius, type Chain, type Raceme, type Vine, type World } from "./world";
+import { Illustrator, SX, SY } from "./illustrator";
+import { GROUND_ROWS, PetalState, RIPPLE_LIFE, rippleRadius, type World } from "./world";
 
-const SUB = [0.25, 0.25, 0.75, 0.25, 0.25, 0.75, 0.75, 0.75];
 const PETAL_GLYPHS = ["'", "`", ",", "."];
-/** Florets, dim → bright. */
-const FLORET_RAMP = " .:;=o*%8&@";
-const LIGHT_DIR = { x: -0.42, y: -0.91 };
+/** Flat cells inside a shape, dim → bright. Few levels, so a petal reads as one surface. */
+const FILL = ".:;o%@@";
+/** Glyphs an edge cell may be matched against. */
+const STROKES = " .,'`-_|/\\()^v<>";
 
 export class AsciiRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -44,8 +47,19 @@ export class AsciiRenderer {
 
   private styleCache = new Map<number, string>();
   private buckets = new Map<number, number[]>();
-  private q = { x: 0, y: 0, tx: 0, ty: 1 };
   private world: World | null = null;
+  private illustrator: Illustrator;
+  /** Stroke glyph bitmaps at SX × SY, in the current font and cell size. */
+  private strokes: { g: string; t: Float32Array }[] = [];
+  private shading = {
+    lightAt: (x: number, y: number) => (this.world ? this.lightAt(this.world, x, y) : 1),
+    glowAt: (x: number, y: number) => {
+      const c = Math.floor(x / this.cw);
+      const r = Math.floor(y / this.ch);
+      if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) return 0;
+      return Math.min(1, this.energy[r * this.cols + c] * 2);
+    },
+  };
 
   constructor(private canvas: HTMLCanvasElement, palette: Partial<Palette> = {}) {
     const ctx = canvas.getContext("2d", { alpha: false });
@@ -53,6 +67,7 @@ export class AsciiRenderer {
     this.ctx = ctx;
     this.bg = document.createElement("canvas");
     this.palette = { ...MOONLIGHT, ...palette };
+    this.illustrator = new Illustrator(this.palette);
   }
 
   get cellWidth() {
@@ -69,13 +84,20 @@ export class AsciiRenderer {
 
   setFontFamily(family: string) {
     if (family) this.fontFamily = family;
+    this.strokes = [];
+  }
+
+  /** Call once the webfont has loaded, so edge matching uses the real glyph shapes. */
+  fontsReady() {
+    this.strokes = [];
   }
 
   resize(width: number, height: number, dpr: number) {
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    this.cw = clamp(Math.round(width / 124), 7, 13);
+    // Fine cells: a petal needs several of them to keep its shape.
+    this.cw = clamp(Math.round(width / 175), 6, 10);
     this.ch = Math.round(this.cw * 1.5);
     this.cols = Math.ceil(width / this.cw);
     this.rows = Math.ceil(height / this.ch);
@@ -90,6 +112,8 @@ export class AsciiRenderer {
     this.zbuf = new Float32Array(n);
     this.energy = new Float32Array(n);
     this.energyTmp = new Float32Array(n);
+    this.illustrator.resize(this.cols, this.rows, this.cw, this.ch);
+    this.strokes = [];
 
     this.moonCells = [];
     this.stars = [];
@@ -174,10 +198,8 @@ export class AsciiRenderer {
     this.drawSky(world, reveal);
     this.drawRipples(world);
     this.drawGround(world);
-    this.drawFore(world);
-    for (const v of world.vines) this.drawVine(world, v);
-    for (const l of world.leaves) this.drawLeaf(world, l);
-    for (const r of world.racemes) this.drawRaceme(world, r);
+    this.illustrator.draw(world, this.shading);
+    this.convert();
     this.drawPetals(world);
     this.drawMotes(world);
 
@@ -216,7 +238,7 @@ export class AsciiRenderer {
       if (!list) buckets.set(k, (list = []));
       list.push(i);
     }
-    ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
+    ctx.font = `600 ${Math.round(ch * 0.8)}px ${this.fontFamily}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     for (const [k, list] of buckets) {
@@ -345,9 +367,9 @@ export class AsciiRenderer {
           const shimmer = 0.75 + 0.25 * Math.sin(a * 5 + rp.age * 3);
           const x = rp.x + cs * r;
           const y = rp.y + sn * r;
-          this.putPx(x, y, this.strokeGlyph(-sn, cs), color, alpha * shimmer, 0.88);
+          this.putPx(x, y, this.strokeGlyph(-sn, cs), color, alpha * shimmer, 0.3);
           // A soft wake just inside the front.
-          this.putPx(rp.x + cs * (r - ch * 0.7), rp.y + sn * (r - ch * 0.7), ".", color, alpha * 0.35 * shimmer, 0.87);
+          this.putPx(rp.x + cs * (r - ch * 0.7), rp.y + sn * (r - ch * 0.7), ".", color, alpha * 0.35 * shimmer, 0.29);
         }
       }
       // The echo: a second, dotted ring a beat behind.
@@ -358,7 +380,7 @@ export class AsciiRenderer {
         if (re > cw) {
           const step = (cw * 0.9) / re;
           for (let a = 0; a < TAU; a += step) {
-            this.putPx(rp.x + Math.cos(a) * re, rp.y + Math.sin(a) * re, ":", P.fragrance, Math.pow(1 - te, 1.8) * 0.4, 0.86);
+            this.putPx(rp.x + Math.cos(a) * re, rp.y + Math.sin(a) * re, ":", P.fragrance, Math.pow(1 - te, 1.8) * 0.4, 0.28);
           }
         }
       }
@@ -416,208 +438,124 @@ export class AsciiRenderer {
     return "-\\|/"[k];
   }
 
-  private drawVine(world: World, v: Vine) {
-    const { palette: P } = this;
-    const reveal = smoothstep(v.start, v.start + v.duration, world.clock);
-    if (reveal <= 0) return;
-    const pts = v.pts;
-    const n = Math.floor((pts.length / 2) * reveal);
-    for (let k = 1; k < n; k++) {
-      const x = pts[k * 2];
-      const y = pts[k * 2 + 1];
-      const dx = x - pts[k * 2 - 2];
-      const dy = y - pts[k * 2 - 1];
-      const lit = Math.min(1.1, this.lightAt(world, x, y));
-      const c = Math.floor(x / this.cw);
-      const r = Math.floor(y / this.ch);
-      let g = this.strokeGlyph(dx, dy);
-      if (g === "-" && v.thick > 1) g = hash3(c, r, 21) < 0.65 ? "=" : "~";
-      const col = mixRGB(P.bark, P.leaf[2], 0.15 * lit);
-      this.put(c, r, g, col, (0.45 + 0.45 * v.depth) * lit, v.depth - 0.05);
-      if (v.thick > 1) this.put(c, r + 1, hash3(c, r, 22) < 0.5 ? "-" : "_", P.bark, 0.4 * lit, v.depth - 0.06);
-    }
-  }
+  // ── illustration → glyphs ───────────────────────────────────────────
 
-  private drawLeaf(world: World, l: Chain & { leaflets: { s: number; side: 1 | -1; len: number; angle: number }[] }) {
-    if (l.grow <= 0) return;
-    const { palette: P, q } = this;
-    const z = l.depth - 0.03;
-    const haze = (1 - l.depth) * 0.5;
-    for (const lf of l.leaflets) {
-      if (lf.s > l.grow) continue;
-      world.pointOn(l, lf.s / Math.max(l.grow, 1e-3), q);
-      // Leaflet direction: the stem tangent rotated out to its side.
-      const ang = Math.atan2(q.ty, q.tx) - lf.side * lf.angle;
-      const dx = Math.cos(ang);
-      const dy = Math.sin(ang);
-      const g = this.strokeGlyph(dx, dy);
-      const len = lf.len * l.grow;
-      for (let d = this.cw * 0.6; d < len; d += this.cw * 0.6) {
-        const x = q.x + dx * d;
-        const y = q.y + dy * d;
-        const lit = this.lightAt(world, x, y);
-        const tone = clamp(lit * (0.45 + 0.4 * l.depth) - (d / len) * 0.15, 0, 1);
-        const col = mixRGB(ramp(P.leaf, tone), P.skyTop, haze);
-        this.putPx(x, y, d + this.cw * 0.6 >= len ? "'" : g, col, 0.35 + 0.55 * l.depth, z);
-      }
-    }
-    // The leaf's own stem.
-    for (let s = 0; s < 1; s += 0.08) {
-      world.pointOn(l, s, q);
-      this.putPx(q.x, q.y, this.strokeGlyph(q.tx, q.ty), P.leaf[1], 0.3 + 0.4 * l.depth, z - 0.001);
-    }
-  }
-
-  /** Lower-left framing, deliberately out of focus: soft, sparse and dim. */
-  private drawFore(world: World) {
-    const fore = world.fore;
-    if (!fore) return;
-    const { palette: P, cw, ch } = this;
-    const reveal = smoothstep(fore.vine.start, fore.vine.start + fore.vine.duration, world.clock);
-    if (reveal <= 0) return;
-    const pts = fore.vine.pts;
-    const n = Math.floor((pts.length / 2) * reveal);
-    for (let k = 1; k < n; k++) {
-      const x = pts[k * 2];
-      const y = pts[k * 2 + 1];
-      for (let o = -1; o <= 1; o++) {
-        const g = o === 0 ? ":" : ".";
-        this.putPx(x, y + o * ch * 0.6, g, P.leaf[1], o === 0 ? 0.32 : 0.14, 0.2);
-      }
-    }
-    const t = world.time;
-    for (const lf of fore.leaves) {
-      const sway = Math.sin(t * 0.4 + lf.x * 0.01) * 0.06;
-      const dx = Math.cos(lf.angle + sway);
-      const dy = Math.sin(lf.angle + sway);
-      for (let d = 0; d < lf.len * reveal; d += cw * 0.5) {
-        const w = Math.sin((d / lf.len) * Math.PI) * lf.len * 0.2;
-        for (let o = -w; o <= w; o += cw * 0.8) {
-          const x = lf.x + dx * d - dy * o;
-          const y = lf.y + dy * d + dx * o;
-          const edge = Math.abs(o) / (w || 1);
-          this.putPx(x, y, edge > 0.6 ? "." : ":", P.leaf[1], 0.24 - edge * 0.1, 0.22);
-        }
-      }
-    }
-    for (const b of fore.blooms) {
-      const R = b.r * reveal;
-      for (let y = -R; y <= R; y += ch * 0.5) {
-        for (let x = -R * 1.3; x <= R * 1.3; x += cw * 0.5) {
-          const d = Math.hypot(x / 1.3, y) / (R || 1);
-          if (d > 1) continue;
-          const lit = 0.5 + 0.5 * (-(x / R) * LIGHT_DIR.x - (y / R) * LIGHT_DIR.y) * 0.5;
-          const col = ramp(P.petal, 0.35 + 0.45 * lit);
-          this.putPx(b.x + x, b.y + y, d > 0.7 ? "." : d > 0.4 ? ":" : ";", col, (0.4 - d * 0.25) * reveal, 0.24);
-        }
-      }
-    }
-  }
-
-  // ── racemes ─────────────────────────────────────────────────────────
-
-  private drawRaceme(world: World, r: Raceme) {
-    if (r.grow <= 0) return;
-    const { palette: P, q, cw, ch } = this;
-    const t = world.time;
-    const blur = r.depth < 0.5;
-    const haze = (1 - r.depth) * 0.6;
-
-    // Stem first, so the florets cover it where they are dense.
-    for (let s = 0; s < 1; s += 0.03) {
-      world.pointOn(r, s, q);
-      const lit = this.lightAt(world, q.x, q.y);
-      const col = mixRGB(P.stem, P.skyTop, haze);
-      this.putPx(q.x, q.y, blur ? ":" : this.strokeGlyph(q.tx, q.ty), col, (0.2 + 0.35 * r.depth) * Math.min(1, lit), r.depth - 0.02);
-    }
-
-    const tintShift: RGB = [r.tint * 10, r.tint * -2, r.tint * -12];
-    for (let fi = 0; fi < r.florets.length; fi++) {
-      const f = r.florets[fi];
-      if (f.s > r.grow) continue;
-      world.pointOn(r, f.s / r.grow, q);
-      const open = f.s < r.bloom;
-      // Buds are small; florets swell as they open.
-      const openness = open ? smoothstep(0, 0.12, r.bloom - f.s) : 0;
-      let rad = r.width * f.size * (0.45 + 0.55 * openness) * Math.min(1, r.grow * 1.5);
-      if (blur) rad *= 1.3;
-      if (rad < cw * 0.3) continue;
-
-      // Each floret hangs out to its side on a short stalk and sways a little on its own.
-      const sway = Math.sin(t * 1.6 + f.phase) * 0.18 * (0.4 + world.gust);
-      const nx = -q.ty;
-      const ny = q.tx;
-      const off = rad * (0.62 + 0.25 * f.s);
-      let ox = nx * f.side * off + q.tx * rad * 0.3;
-      let oy = ny * f.side * off + q.ty * rad * 0.3;
-      const cs = Math.cos(sway);
-      const sn = Math.sin(sway);
-      [ox, oy] = [ox * cs - oy * sn, ox * sn + oy * cs];
-      const fx = q.x + ox;
-      const fy = q.y + oy;
-      const rx = rad * 1.1;
-      const ry = rad * 0.85;
-      const z = r.depth + f.z + (1 - f.s) * 0.004;
-      const lit = this.lightAt(world, fx, fy);
-
-      const c0 = Math.floor((fx - rx) / cw);
-      const c1 = Math.floor((fx + rx) / cw);
-      const r0 = Math.floor((fy - ry) / ch);
-      const r1 = Math.floor((fy + ry) / ch);
-      const fc = Math.floor(fx / cw);
-      const fr = Math.floor(fy / ch);
-      for (let row = r0; row <= r1; row++) {
-        for (let col = c0; col <= c1; col++) {
-          let cover = 0;
-          let dsum = 0;
-          for (let k = 0; k < 8; k += 2) {
-            const x = ((col + SUB[k]) * cw - fx) / rx;
-            // Slightly flattened top, like the banner petal flaring over the keel.
-            const yy = ((row + SUB[k + 1]) * ch - fy) / ry;
-            const d = x * x + yy * yy * (yy < 0 ? 1.15 : 0.95);
-            if (d < 1) {
-              cover++;
-              dsum += d;
+  private buildStrokes() {
+    const S = 4;
+    const c = document.createElement("canvas");
+    c.width = this.cw * S;
+    c.height = this.ch * S;
+    const g = c.getContext("2d", { willReadFrequently: true });
+    if (!g) return;
+    g.font = `600 ${Math.round(this.ch * 0.8 * S)}px ${this.fontFamily}`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillStyle = "#fff";
+    this.strokes = [];
+    for (const ch of STROKES) {
+      g.clearRect(0, 0, c.width, c.height);
+      g.fillText(ch, c.width / 2, c.height / 2);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const t = new Float32Array(SX * SY);
+      const bw = c.width / SX;
+      const bh = c.height / SY;
+      for (let y = 0; y < SY; y++) {
+        for (let x = 0; x < SX; x++) {
+          let sum = 0;
+          let n = 0;
+          for (let yy = Math.floor(y * bh); yy < Math.floor((y + 1) * bh); yy++) {
+            for (let xx = Math.floor(x * bw); xx < Math.floor((x + 1) * bw); xx++) {
+              sum += d[(yy * c.width + xx) * 4 + 3];
+              n++;
             }
           }
-          // Single-sample hits are just noise at this resolution.
-          if (cover < 2) continue;
-          const d = dsum / cover;
-          const cx = ((col + 0.5) * cw - fx) / rx;
-          const cy = ((row + 0.5) * ch - fy) / ry;
-          const facing = -(cx * LIGHT_DIR.x + cy * LIGHT_DIR.y);
-          const e = this.energy[row * this.cols + col] || 0;
-          let tone = (0.66 + 0.36 * facing - 0.2 * d) * lit * (0.6 + 0.55 * r.depth) + e * 0.6;
-          // Darken the rim so neighbouring petals read as separate shapes.
-          if (d > 0.6) tone *= 0.58;
-          tone = clamp(tone, 0, 1);
-
-          const h = hash3(col - fc, row - fr, r.seed + fi);
-          let g: string;
-          let color: RGB;
-          if (!open) {
-            color = mixRGB(P.bud, P.petal[2], tone * 0.5);
-            g = blur ? "." : d < 0.45 ? "o" : ":";
-          } else if (blur) {
-            color = ramp(P.petal, tone * 0.85);
-            g = cover < 3 ? "." : tone > 0.45 ? ";" : ":";
-          } else {
-            color = ramp(P.petal, tone);
-            // One monotone ramp, nudged by a stable per-floret hash: each floret
-            // reads as a single shaded shape, its rim a step darker.
-            const k = clamp(Math.round(tone * (FLORET_RAMP.length - 1) + (h - 0.5) * 0.7), 1, FLORET_RAMP.length - 1);
-            g = FLORET_RAMP[Math.max(2, k)];
-          }
-          color = mixRGB([color[0] + tintShift[0], color[1] + tintShift[1], color[2] + tintShift[2]], P.skyTop, haze);
-          let a = blur ? 0.22 + 0.2 * (cover / 4) : 0.7 + 0.3 * r.depth;
-          // A rare moonlight glint on the brightest petals.
-          if (open && !blur && tone > 0.8 && hash3(col, row, Math.floor(t * 0.8)) > 0.994) {
-            g = "+";
-            color = P.moon;
-            a = 1;
-          }
-          this.put(col, row, g, color, a, z);
+          t[y * SX + x] = sum / (n * 255);
         }
+      }
+      // Normalise so thin and bold strokes compete on shape, not on ink.
+      let peak = 0;
+      for (const v of t) peak = Math.max(peak, v);
+      if (peak > 0) for (let k = 0; k < t.length; k++) t[k] /= peak;
+      this.strokes.push({ g: ch, t });
+    }
+  }
+
+  /** Read the illustration back and choose a glyph and colour for every cell it covers. */
+  private convert() {
+    if (this.strokes.length === 0) this.buildStrokes();
+    const { cols, rows, strokes } = this;
+    const ill = this.illustrator;
+    const W = ill.canvas.width;
+    const data = ill.ctx.getImageData(0, 0, W, ill.canvas.height).data;
+    const n = SX * SY;
+    const v = new Float32Array(n);
+    const col: RGB = [0, 0, 0];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        let sum = 0;
+        let peak = 0;
+        let low = 1;
+        let R = 0;
+        let G = 0;
+        let B = 0;
+        let A = 0;
+        for (let y = 0; y < SY; y++) {
+          let i = ((r * SY + y) * W + c * SX) * 4;
+          for (let x = 0; x < SX; x++, i += 4) {
+            const a = data[i + 3] / 255;
+            const l = ((0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]) / 255) * a;
+            v[y * SX + x] = l;
+            sum += l;
+            if (l > peak) peak = l;
+            if (l < low) low = l;
+            R += data[i] * a;
+            G += data[i + 1] * a;
+            B += data[i + 2] * a;
+            A += a;
+          }
+        }
+        const mean = sum / n;
+        if (mean < 0.03 || A === 0) continue;
+
+        let g: string;
+        let alpha = 1;
+        const cover = A / n;
+        if (peak < 0.13) {
+          // Too dim to hold a shape (bokeh, deep shadow): a single soft dot.
+          g = ".";
+          alpha = 0.5 + peak * 3;
+        } else if (cover < 0.6 && peak - low > peak * 0.45 + 0.04) {
+          // An edge: the stroke glyph whose shape best fits the light in this cell.
+          let best = Infinity;
+          g = " ";
+          for (const s of strokes) {
+            let err = 0;
+            for (let k = 0; k < n; k++) {
+              const d = v[k] / peak - s.t[k];
+              err += d * d;
+            }
+            if (err < best) {
+              best = err;
+              g = s.g;
+            }
+          }
+          if (g === " ") continue;
+          alpha = 0.6 + 0.4 * cover;
+        } else {
+          // The surface's own brightness, on a curve so dim leaves and bokeh stay sparse.
+          const surface = mean / Math.max(cover, 0.3);
+          g = FILL[Math.min(FILL.length - 1, Math.floor(Math.pow(surface, 1.5) * 2.1 * FILL.length))];
+        }
+        // The covered pixels' own colour, lifted so the glyph's ink is as bright as the petal.
+        const lum = (0.2126 * R + 0.7152 * G + 0.0722 * B) / (A * 255) || 1;
+        const k = Math.min(2.8, (0.12 + peak * 1.3) / lum);
+        // Scale as a whole rather than clipping per channel, so highlights stay violet.
+        const top = (Math.max(R, G, B) / A) * k;
+        const fit = top > 240 ? 240 / top : 1;
+        col[0] = (R / A) * k * fit;
+        col[1] = (G / A) * k * fit;
+        col[2] = (B / A) * k * fit;
+        this.put(c, r, g, col, alpha, 0.5);
       }
     }
   }
