@@ -1,7 +1,7 @@
 /**
  * Lab: turn a reference photo into ASCII, to find out what a subject needs in
- * order to stay recognisable at a given cell size. Put the photo at
- * lab/reference.jpg (it is git-ignored), run `npm run dev`, and open /lab/photo.html.
+ * order to stay recognisable at a given cell size. Run `npm run dev` and open
+ * /lab/photo.html (it uses public/wisteria.jpg; ?src=/other.jpg for another photo).
  *   ?mode=ramp   brightness only: one glyph per cell from a density ramp (what the engine does now)
  *   ?mode=shape  shape matching: the glyph whose bitmap best fits the cell's sub-pixel pattern
  *   ?mode=hybrid flat cells from a ramp, edge cells matched by shape against stroke-like glyphs
@@ -23,7 +23,7 @@ const canvas = document.querySelector("canvas")!;
 const font = getComputedStyle(canvas).fontFamily;
 
 const img = new Image();
-img.src = "./reference.jpg";
+img.src = params.get("src") ?? "/wisteria.jpg";
 await img.decode();
 await document.fonts.load(`600 16px ${font}`);
 
