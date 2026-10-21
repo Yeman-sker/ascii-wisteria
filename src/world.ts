@@ -19,9 +19,6 @@
  * when the ring reaches them, and fallen petals it passes over are lifted
  * back into the air, so a click reads as one wave spreading through the scene.
  *
- * Poem: once in a long while, falling petals gather into a line of verse,
- * hold it for a few breaths, and let it go.
- *
  * Photo layout: instead of simulated racemes, the scene is a photograph. It
  * sways as a curtain of pendulums (one per column, hanging from the top), and
  * petals fall from its bright flower pixels.
@@ -105,8 +102,6 @@ export interface Vine {
 export const enum PetalState {
   Fall,
   Linger,
-  Seek,
-  Hold,
 }
 
 export interface Petal {
@@ -118,11 +113,9 @@ export interface Petal {
   spin: number;
   depth: number;
   state: PetalState;
-  /** Seconds left in Linger, or delay before Seek starts steering. */
+  /** Seconds left in Linger. */
   timer: number;
   willLinger: boolean;
-  tx: number;
-  ty: number;
   alive: boolean;
 }
 
@@ -161,12 +154,6 @@ export function rippleRadius(r: Ripple, age = r.age) {
 export interface WorldOptions {
   /** Play the growth opening. Default true. */
   intro?: boolean;
-  /** Lines of verse the petals gather into, or false for none. */
-  poem?: string[] | false;
-  /** Seconds after the intro before the first poem. */
-  poemDelay?: number;
-  /** Seconds between poems, [min, max]. */
-  poemEvery?: [number, number];
   /** Racemes per unit width, relative. Default 1. */
   density?: number;
   /** Wind strength, relative. Default 1. */
@@ -175,11 +162,6 @@ export interface WorldOptions {
   layout?: "illustration" | "photo";
 }
 
-/** Default verse: 李白《紫藤树》. */
-export const LI_BAI = ["紫藤挂云木", "花蔓宜阳春", "密叶隐歌鸟", "香风留美人"];
-
-/** Supplied by the engine: cell centres (px) that spell `text` inside an area. */
-export type MaskProvider = (text: string, area: { x: number; y: number; w: number; h: number }, vertical?: boolean) => { x: number; y: number }[];
 
 const INTRO_LENGTH = 18;
 
@@ -208,14 +190,9 @@ export class World {
   /** 0 → 1, current gust strength. */
   gust = 0;
   moon = { x: 0, y: 0, r: 0 };
-  maskProvider: MaskProvider | null = null;
-
-  poem = { phase: "idle" as "idle" | "gather" | "hold", next: 0, until: 0, index: 0 };
 
   /** Where the photograph sits on screen (cover-fit), in px. */
   photoRect = { x: 0, y: 0, w: 0, h: 0 };
-  /** The emptiest vertical band of the photograph, between racemes: where a vertical poem goes. */
-  poemColumn = { x: 0, w: 0 };
   /** Bright flower pixels of the photograph at rest, in px, with their brightness. */
   flowers: { x: number; y: number; b: number }[] = [];
   /** Pendulum angle and angular velocity per column. */
@@ -232,9 +209,6 @@ export class World {
   constructor(options: WorldOptions = {}) {
     this.opts = {
       intro: options.intro ?? true,
-      poem: options.poem === undefined ? LI_BAI : options.poem,
-      poemDelay: options.poemDelay ?? 45,
-      poemEvery: options.poemEvery ?? [150, 260],
       density: options.density ?? 1,
       wind: options.wind ?? 1,
       layout: options.layout ?? "illustration",
@@ -272,10 +246,7 @@ export class World {
 
   /** Skip the growth opening and show the garden in full bloom. */
   skipIntro() {
-    if (this.clock < INTRO_LENGTH + 2) {
-      this.clock = INTRO_LENGTH + 2;
-      this.poem.next = this.clock + this.opts.poemDelay;
-    }
+    if (this.clock < INTRO_LENGTH + 2) this.clock = INTRO_LENGTH + 2;
   }
 
   resize(width: number, height: number, cellW: number, cellH: number) {
@@ -306,7 +277,7 @@ export class World {
 
   // ── layout ──────────────────────────────────────────────────────────
 
-  /** What both layouts share: the light, the moon, and the poem's first date. */
+  /** What both layouts share: the light and the moon. */
   private seedCommon(ch: number) {
     const { width: W, height: H } = this;
     this.petals = [];
@@ -314,7 +285,6 @@ export class World {
     this.light.y = H * 0.3;
     // A low moon in the open lower right: the oldest image of missing someone.
     this.moon = { x: W * (W > 700 ? 0.84 : 0.78), y: H * 0.7, r: Math.max(3 * ch, Math.min(W, H) * 0.07) };
-    if (this.poem.next === 0) this.poem.next = INTRO_LENGTH + this.opts.poemDelay;
   }
 
   /** Cover-fit the photograph and place its flower pixels on screen. */
@@ -331,21 +301,6 @@ export class World {
       const y = this.photoRect.y + points[i + 1] * rect.h;
       if (x >= 0 && x <= W && y >= 0 && y <= H) this.flowers.push({ x, y, b: points[i + 2] });
     }
-    // Find the darkest band across the middle of the picture, by flower count per column.
-    const bins = 48;
-    const count = new Float32Array(bins);
-    for (const f of this.flowers) count[Math.min(bins - 1, Math.floor((f.x / W) * bins))] += 0.5 + f.b;
-    let best = Math.floor(bins / 2);
-    let bestV = Infinity;
-    for (let b = Math.floor(bins * 0.25); b < Math.ceil(bins * 0.8); b++) {
-      // Weigh neighbours too, so the band is wide enough for the characters.
-      const v = count[b] * 2 + (count[b - 1] ?? 0) + (count[b + 1] ?? 0);
-      if (v < bestV) {
-        bestV = v;
-        best = b;
-      }
-    }
-    this.poemColumn = { x: ((best + 0.5) / bins) * W, w: Math.min(W * 0.11, H * 0.17) };
   }
 
   /** Horizontal sway of the photograph at (x, y): the column's pendulum angle times how far below the top it hangs. */
@@ -392,7 +347,7 @@ export class World {
     // in the moonbeam with dark air between them, a few mid-distance ones, and
     // soft out-of-focus ones behind. Sizes are fractions of the height, so the
     // picture keeps its proportions at any resolution. Tips stop at ~68% of the
-    // height; the open band below is for falling petals and the poem.
+    // height; the open band below is for falling petals.
     const lenNoiseSeed = Math.floor(Math.random() * 1000);
     const unit = Math.min(H, W * 1.3);
     const tipLimit = H * 0.7;
@@ -544,7 +499,6 @@ export class World {
     this.spawnPetals(dt);
     this.stepPetals(dt);
     this.stepMotes(dt);
-    this.stepPoem();
 
     const fade = Math.exp(-dt / 55);
     for (let i = 0; i < this.ground.length; i++) this.ground[i] *= fade;
@@ -850,8 +804,6 @@ export class World {
     p.state = PetalState.Fall;
     p.timer = 0;
     p.willLinger = false;
-    p.tx = 0;
-    p.ty = 0;
     p.alive = true;
   }
 
@@ -867,17 +819,17 @@ export class World {
     return p;
   }
 
-  private spawnPetalFrom(r: Raceme, state = PetalState.Fall): Petal | null {
+  private spawnPetalFrom(r: Raceme): Petal | null {
     if (r.bloom < 0.2) return null;
     const s = rand(0.04, r.bloom * 0.95);
     const q = this.pointOn(r, s, this.tmp);
     const spread = r.width * (1 - 0.6 * s) * rand(-1.2, 1.2);
-    return this.spawnPetalAt(q.x - q.ty * spread, q.y + q.tx * spread, r.depth, state);
+    return this.spawnPetalAt(q.x - q.ty * spread, q.y + q.tx * spread, r.depth);
   }
 
   /** A petal from one of the photograph's flower pixels, where it has swayed to. */
-  private spawnPetalAtFlower(f: { x: number; y: number; b: number }, state = PetalState.Fall) {
-    return this.spawnPetalAt(f.x + this.displaceX(f.x, f.y), f.y, 0.6 + 0.4 * f.b, state);
+  private spawnPetalAtFlower(f: { x: number; y: number; b: number }) {
+    return this.spawnPetalAt(f.x + this.displaceX(f.x, f.y), f.y, 0.6 + 0.4 * f.b);
   }
 
   private randomFlower() {
@@ -889,7 +841,7 @@ export class World {
     return this.flowers[(Math.random() * this.flowers.length) | 0];
   }
 
-  private spawnPetalAt(x: number, y: number, depth: number, state = PetalState.Fall): Petal | null {
+  private spawnPetalAt(x: number, y: number, depth: number): Petal | null {
     const p = this.newPetal();
     if (!p) return null;
     p.x = x;
@@ -899,11 +851,9 @@ export class World {
     p.phase = rand(0, TAU);
     p.spin = rand(1.6, 3.6) * (Math.random() < 0.5 ? -1 : 1);
     p.depth = clamp(depth + rand(-0.08, 0.08), 0.3, 1);
-    p.state = state;
+    p.state = PetalState.Fall;
     p.timer = 0;
-    p.willLinger = state === PetalState.Fall && Math.random() < 0.035;
-    p.tx = 0;
-    p.ty = 0;
+    p.willLinger = Math.random() < 0.035;
     p.alive = true;
     return p;
   }
@@ -950,27 +900,6 @@ export class World {
       if (!p.alive) continue;
       p.phase += p.spin * dt;
 
-      if (p.state === PetalState.Hold) {
-        // Breathe in place.
-        p.x += Math.sin(t * 1.3 + p.phase) * 0.04;
-        p.y += Math.cos(t * 1.1 + p.phase) * 0.03;
-        continue;
-      }
-
-      if (p.state === PetalState.Seek) {
-        p.timer -= dt;
-        if (p.timer <= 0) {
-          // Critically damped spring onto the target cell.
-          const k = 3.2;
-          const c = 2 * Math.sqrt(k) * 1.05;
-          p.vx += ((p.tx - p.x) * k - p.vx * c) * dt;
-          p.vy += ((p.ty - p.y) * k - p.vy * c) * dt;
-          p.x += p.vx * dt;
-          p.y += p.vy * dt;
-          continue;
-        }
-      }
-
       if (p.state === PetalState.Linger) {
         p.timer -= dt;
         p.vx *= 1 - dt * 2.5;
@@ -1011,80 +940,6 @@ export class World {
       } else if (p.x < -40 || p.x > this.width + 40) {
         p.alive = false;
       }
-    }
-  }
-
-  // ── poem ────────────────────────────────────────────────────────────
-
-  private stepPoem() {
-    const lines = this.opts.poem;
-    const poem = this.poem;
-    if (!lines || lines.length === 0 || !this.maskProvider || !this.introDone) return;
-    const t = this.time;
-
-    if (poem.phase === "idle") {
-      if (this.clock < poem.next) return;
-      const text = lines[poem.index % lines.length];
-      poem.index++;
-      const W = this.width;
-      const H = this.height;
-      const pc = this.poemColumn;
-      const cells = this.isPhoto
-        ? this.maskProvider(text, { x: pc.x - pc.w / 2, y: H * 0.1, w: pc.w, h: H * 0.82 }, true)
-        : this.maskProvider(text, { x: W * 0.06, y: H * 0.7, w: W * 0.66, h: H * 0.2 });
-      if (cells.length < 12) {
-        // Too small to read at this size; try again later.
-        poem.next = this.clock + 60;
-        return;
-      }
-      const fronts = this.racemes.filter((r) => r.bloom > 0.4);
-      for (const cell of cells) {
-        const r = fronts[(Math.random() * fronts.length) | 0];
-        const p = this.isPhoto
-          ? this.flowers.length > 0 && this.spawnPetalAtFlower(this.randomFlower(), PetalState.Seek)
-          : r && this.spawnPetalFrom(r, PetalState.Seek);
-        if (!p) break;
-        p.tx = cell.x;
-        p.ty = cell.y;
-        // Fall freely for a moment, then drift into place, staggered.
-        p.timer = rand(0.6, 3.2);
-      }
-      poem.phase = "gather";
-      poem.until = t + 9;
-      return;
-    }
-
-    if (poem.phase === "gather") {
-      let settled = true;
-      for (const p of this.petals) {
-        if (!p.alive || p.state !== PetalState.Seek) continue;
-        if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1.5 && Math.hypot(p.vx, p.vy) < 6) {
-          p.state = PetalState.Hold;
-          p.x = p.tx;
-          p.y = p.ty;
-        } else {
-          settled = false;
-        }
-      }
-      if (settled || t > poem.until) {
-        for (const p of this.petals) if (p.alive && p.state === PetalState.Seek) p.state = PetalState.Hold;
-        poem.phase = "hold";
-        poem.until = t + 4.5;
-      }
-      return;
-    }
-
-    if (t > poem.until) {
-      // Let go: each petal gets its own little push, and they fall away.
-      for (const p of this.petals) {
-        if (!p.alive || p.state !== PetalState.Hold) continue;
-        p.state = PetalState.Fall;
-        p.vx = rand(-6, 6) + this.windAt(p.x, p.y, t) * 0.2;
-        p.vy = rand(-4, 2) - hash3(p.x | 0, p.y | 0, 3) * 6;
-      }
-      poem.phase = "idle";
-      const [a, b] = this.opts.poemEvery;
-      poem.next = this.clock + rand(a, b);
     }
   }
 }

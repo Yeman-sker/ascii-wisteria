@@ -86,10 +86,6 @@ and a blurred vine framing the lower-left corner.
 
 - **Fragrance**: the cursor is a breeze that pushes racemes aside as it passes. It is also a small lantern that lights the florets near it. Behind it, evenly spaced motes take a little of its speed, then slow, rise and curl, with fainter wisps feathering off to the sides. Florets they drift past light up for a moment.
 - **Ripple**: a click sends out an ASCII ring that eases outward over about 3 s, followed a beat later by a fainter dotted echo. Racemes swing and shed petals only when the ring reaches them, and fallen petals it passes over flutter back up, so the click spreads through the scene as one wave.
-- **Poem**: once in a long while, falling petals gather into a line of Li Bai's *Wisteria* (紫藤树), hold it for a few breaths, and let it go.
-
-  ![poem](docs/poem.png)
-
 With `prefers-reduced-motion`, you get a single still frame in full bloom. Rendering pauses while the canvas is off-screen.
 
 ## Options
@@ -98,16 +94,13 @@ With `prefers-reduced-motion`, you get a single still frame in full bloom. Rende
 new WisteriaEngine(canvas, {
   image: "/wisteria.jpg",   // a photograph to bring to life; omit for the illustration
   intro: true,              // opening (reveal or growth); false starts in full bloom
-  poem: ["香风留美人"],      // your own lines, or false to turn the poem off
-  poemDelay: 45,            // seconds after the intro before the first poem
-  poemEvery: [150, 260],    // seconds between poems
   density: 1,               // racemes per width, relative
   wind: 1,                  // wind strength, relative
   palette: { skyTop: [12, 9, 30] }, // override any colour of the moonlight palette
 });
 ```
 
-Demo URL params: `?image=0` (illustration), `?image=/other.jpg`, `?intro=0`, `?poem=0`, `?poem=line one|line two`, `?poemDelay=0`. The demo expects a photograph at `public/wisteria.jpg`.
+Demo URL params: `?image=0` (illustration), `?image=/other.jpg`, `?intro=0`. The demo expects a photograph at `public/wisteria.jpg`.
 
 React:
 
@@ -116,8 +109,6 @@ import { AsciiWisteria } from "./src/react";
 
 <AsciiWisteria className="hero" options={{ intro: false }} />;
 ```
-
-The poem needs room: each character must be at least 8 cell rows tall, so narrow phone screens skip it. Over a photograph, the poem runs vertically through the darkest gap between racemes.
 
 ## How it works
 
@@ -149,8 +140,7 @@ Like [ascii-sharks](https://github.com/stackedlol/ascii-sharks), which inspired 
   - **Edge cells** (part-covered, high contrast) are matched by shape against stroke glyphs (`/ \ | ( ) _ ' , ^ v`), so outlines follow the petals.
   - **Dim cells** become a single soft dot.
   - Each glyph takes the covered pixels' own colour, brightened as a whole so highlights stay violet.
-  - Moon, stars, falling petals, fragrance motes, ripples and the poem are drawn directly as glyphs on top.
-- **`poem.ts`: text to cells.** A line is drawn at 4× resolution per cell on a scratch canvas. Cells that are more than 30% covered become targets, and petals glide onto them, slowing so they settle without overshooting.
+  - Moon, stars, falling petals, fragrance motes and ripples are drawn directly as glyphs on top.
 
 ## Skill
 
@@ -159,7 +149,6 @@ Like [ascii-sharks](https://github.com/stackedlol/ascii-sharks), which inspired 
 ## Credits
 
 - Architecture inspired by [stackedlol/ascii-sharks](https://github.com/stackedlol/ascii-sharks). No code was copied; everything here is written from scratch.
-- Verse: Li Bai, *Wisteria* (李白《紫藤树》).
 
 ## License
 

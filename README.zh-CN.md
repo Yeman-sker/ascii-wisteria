@@ -84,10 +84,6 @@ new WisteriaEngine(canvas, { image: "/wisteria.jpg" }); // canvas 需要设置�
 
 - **暗香**：鼠标是一阵风，掠过时把花串推开；也是一盏小灯，靠近处的花会亮起。它身后每隔一小段就留下一粒香气微粒：微粒带着一点鼠标的速度，然后慢下来、上浮、打旋，两侧还散出更淡的烟丝。微粒飘过的花会被短暂映亮。
 - **涟漪**：点击会发出一圈 ASCII 字符画成的涟漪，约 3 秒缓缓扩散，隔半拍跟着一圈更淡的虚线回声。涟漪扫到哪串花，哪串才摆动、落瓣；扫过地面时会惊起积花。整个点击像一道波，从近到远传遍画面。
-- **诗**：很久才有一次，落花聚成李白《紫藤树》中的一句，停留几息，又散去。
-
-  ![诗](docs/poem.png)
-
 系统开启"减少动态效果"（`prefers-reduced-motion`）时，只显示一帧盛开的静止画面。canvas 滚出屏幕时停止渲染。
 
 ## 参数
@@ -96,16 +92,13 @@ new WisteriaEngine(canvas, { image: "/wisteria.jpg" }); // canvas 需要设置�
 new WisteriaEngine(canvas, {
   image: "/wisteria.jpg",   // 要让它活起来的照片；不传则使用插画
   intro: true,              // 开场（照片逐渐显现，或插画生长）；false 时直接盛开
-  poem: ["香风留美人"],      // 自定义诗句，false 关闭
-  poemDelay: 45,            // 开场结束后多少秒出现第一句诗
-  poemEvery: [150, 260],    // 两次诗句之间的间隔（秒）
   density: 1,               // 花串密度（相对值）
   wind: 1,                  // 风力（相对值）
   palette: { skyTop: [12, 9, 30] }, // 覆盖月光配色中的任意颜色
 });
 ```
 
-演示页 URL 参数：`?image=0`（插画）、`?image=/other.jpg`、`?intro=0`、`?poem=0`、`?poem=第一句|第二句`、`?poemDelay=0`。演示页默认读取 `public/wisteria.jpg`。
+演示页 URL 参数：`?image=0`（插画）、`?image=/other.jpg`、`?intro=0`。演示页默认读取 `public/wisteria.jpg`。
 
 React：
 
@@ -114,8 +107,6 @@ import { AsciiWisteria } from "./src/react";
 
 <AsciiWisteria className="hero" options={{ intro: false }} />;
 ```
-
-诗句需要足够空间：每个字至少要占 8 行字符高，窄屏手机上会自动跳过。照片模式下，诗句竖排在花串之间最暗的那道缝里。
 
 ## 实现
 
@@ -147,8 +138,7 @@ import { AsciiWisteria } from "./src/react";
   - **边缘格子**（部分覆盖、对比强）按形状匹配笔画字符（`/ \ | ( ) _ ' , ^ v`），轮廓顺着花瓣走。
   - **很暗的格子**只画一个柔和的点。
   - 字符颜色取被覆盖像素本身的颜色，整体等比提亮，高光不会发白，仍是紫色。
-  - 月亮、星星、落花、香气微粒、涟漪和诗句直接以字符画在最上层。
-- **`poem.ts`：文字转字符格。** 先在临时 canvas 上以每格 4 倍的分辨率写出诗句，覆盖超过 30% 的格子作为目标；花瓣滑向这些格子，越近越慢，稳稳落定。
+  - 月亮、星星、落花、香气微粒和涟漪直接以字符画在最上层。
 
 ## Skill
 
@@ -157,7 +147,6 @@ import { AsciiWisteria } from "./src/react";
 ## 致谢
 
 - 架构参考 [stackedlol/ascii-sharks](https://github.com/stackedlol/ascii-sharks)。没有复制任何代码，全部从零写成。
-- 诗句：李白《紫藤树》——紫藤挂云木，花蔓宜阳春。密叶隐歌鸟，香风留美人。
 
 ## 许可证
 

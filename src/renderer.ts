@@ -748,14 +748,6 @@ export class AsciiRenderer {
     for (const p of world.petals) {
       if (!p.alive) continue;
       const lit = Math.min(1.15, this.lightAt(world, p.x, p.y));
-      if (p.state === PetalState.Hold || (p.state === PetalState.Seek && Math.hypot(p.tx - p.x, p.ty - p.y) < ch * 0.8)) {
-        const c = Math.floor(p.tx / cw);
-        const r = Math.floor(p.ty / ch);
-        const h = hash3(c, r, 31);
-        const pulse = 0.62 + 0.16 * Math.sin(t * 1.4 + h * TAU);
-        this.putPx(p.x, p.y, "%&o*"[(h * 4) | 0], mixRGB(P.poem, P.petal[2], 0.25 + h * 0.4), pulse, 1.2);
-        continue;
-      }
       if (p.state === PetalState.Linger) {
         this.putPx(p.x, p.y, "*", mixRGB(P.petal[4], P.moon, 0.5), 0.95, 1.2);
         continue;

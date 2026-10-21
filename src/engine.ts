@@ -1,6 +1,5 @@
 import type { Palette } from "./palette";
 import { loadPhoto } from "./photograph";
-import { textMask } from "./poem";
 import { AsciiRenderer } from "./renderer";
 import { World, type WorldOptions } from "./world";
 
@@ -40,7 +39,6 @@ export class WisteriaEngine {
     this.world = new World({ ...options, intro, layout: options.image ? "photo" : "illustration" });
     this.renderer = new AsciiRenderer(canvas, options.palette);
     this.renderer.setFontFamily(getComputedStyle(canvas).fontFamily);
-    this.world.maskProvider = (text, area, vertical) => textMask(text, area, this.renderer.cellWidth, this.renderer.cellHeight, vertical);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas);

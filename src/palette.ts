@@ -22,8 +22,6 @@ export interface Palette {
   fragrance: RGB;
   /** Petals settled on the ground. */
   fallen: RGB;
-  /** Petals gathered into the poem. */
-  poem: RGB;
 }
 
 export const MOONLIGHT: Palette = {
@@ -47,5 +45,4 @@ export const MOONLIGHT: Palette = {
   moon: [214, 220, 246],
   fragrance: [146, 122, 240],
   fallen: [120, 100, 200],
-  poem: [226, 218, 255],
 };

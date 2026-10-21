@@ -19,10 +19,8 @@ const engine = new WisteriaEngine(canvas, { intro: true });
 
 | Option | Default | Effect |
 |---|---|---|
-| `intro` | `true` | ~18 s growth opening; click skips. Forced off under reduced motion. |
-| `poem` | Li Bai's 紫藤树, 4 lines | Lines that petals gather into, shown in order. `false` disables. Custom lines: keep them to ≤7 CJK characters, or short Latin words. |
-| `poemDelay` | `45` | Seconds after the intro before the first poem. |
-| `poemEvery` | `[150, 260]` | Random gap between poems, in seconds. |
+| `image` | none | A wisteria photograph to bring to life (cover-fitted, swayed, converted every frame). Without it, the built-in illustration is drawn. |
+| `intro` | `true` | Opening: the photo is revealed top-down, or the illustration grows (~18 s); click skips. Forced off under reduced motion. |
 | `density` | `1` | Background and mid-layer racemes per width. The two hero racemes are always placed. |
 | `wind` | `1` | Scales all wind forces. |
 | `palette` | `MOONLIGHT` | Partial override; see `src/palette.ts`. |
@@ -39,7 +37,7 @@ const engine = new WisteriaEngine(canvas, { intro: true });
 | Finer or coarser ASCII | `cw` in `AsciiRenderer.resize` (`width / 175`, clamped 6–10) |
 | A trail that lingers longer | `decay` and `k` in `AsciiRenderer.diffuse` |
 | More or fewer falling petals | `rate` in `World.spawnPetals` |
-| Moon position | `this.moon` in `World.seed`; keep it clear of the poem area (`stepPoem`'s mask area) |
+| Moon position | `this.moon` in `World.seedCommon` (illustration only) |
 | A different mood, e.g. dusk | a new palette: warmer `skyTop`, pinker `petal` highlights, a gold `moon` |
 
 To see the illustration without the glyph conversion, run this in the console:
@@ -47,4 +45,4 @@ To see the illustration without the glyph conversion, run this in the console:
 
 ## Verifying changes
 
-Run `npm run dev`. The demo exposes `window.wisteria`: call `wisteria.skipIntro()` to jump to full bloom, and use `?poemDelay=0&intro=0` to see the poem at once. Hidden preview panes may not run `requestAnimationFrame`. In that case, step it by hand with `wisteria.world.step(1/60)` in a loop, then `wisteria.renderer.render(wisteria.world, 1/60)`.
+Run `npm run dev`. The demo exposes `window.wisteria`: call `wisteria.skipIntro()` to jump to full bloom, or load with `?intro=0`. Hidden preview panes may not run `requestAnimationFrame`. In that case, step it by hand with `wisteria.world.step(1/60)` in a loop, then `wisteria.renderer.render(wisteria.world, 1/60)`.

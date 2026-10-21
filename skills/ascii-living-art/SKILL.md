@@ -53,7 +53,7 @@ A photo of the real subject settles structure, light and colour faster than any 
 - Falling or drifting things (petals, snow, embers): particles with a terminal velocity, wind drift and a spin that drives a side-slip, so they tumble instead of dropping straight.
 - The pointer: track its smoothed velocity. Use the velocity, not the position, to push nearby nodes or particles, so it acts as a breeze rather than a magnet.
 - Emit **events** (`land`, `splash`) for the renderer, rather than having the world touch the cell fields.
-- Give the piece a **story arc** if it suits: an intro (grow → open → first fall) with a skip on click, and rare events (a poem, a migration) on long random timers.
+- Give the piece a **story arc** if it suits: an intro (grow → open → first fall) with a skip on click, and rare events (a migration, a gust) on long random timers.
 - Make layout depend on the viewport (`resize` reseeds on big changes) and leave intentional empty areas.
 
 ### 4. Illustrator and renderer: from shapes to glyphs
@@ -71,7 +71,7 @@ A photo of the real subject settles structure, light and colour faster than any 
 - **Edge cells** (coverage < 0.6 and `peak − low > 0.45·peak + 0.04`): least-squares match of `samples / peak` against glyph bitmaps from a *restricted stroke set*, `" .,'\`-_|/\\()^v<>"`. Rasterise the bitmaps from the real font at the same SX × SY, normalised to their own peak. Never offer every glyph: brackets and letters win often and read as code.
 - **Flat cells**: a short ramp (`.:;o%@`) indexed by the surface brightness (`mean / coverage`) on a gamma curve (`^1.5`), so dark leaves stay sparse and a lit petal stays one surface.
 - **Colour**: the covered pixels' own mean colour, brightened as a whole so the glyph's ink matches the petal. Scale uniformly when a channel would exceed ~240, rather than clipping each channel, or highlights wash out to white.
-- Use a z-buffer per cell. Draw the illustration at a fixed z; draw overlays (falling particles, motes, ripples, poem) above or below it.
+- Use a z-buffer per cell. Draw the illustration at a fixed z; draw overlays (falling particles, motes, ripples) above or below it.
 - **Cell size**: `cw ≈ width / 175`, clamped to 6–10 px; `ch = 1.5 × cw`; font size ≈ `0.8 × ch`.
 - **Fields** (`Float32Array` per cell) carry anything diffuse: a trail, heat, accumulated ground. Make blur and decay time-scaled: `k = min(0.2, dt × 0.25)` per neighbour and `decay = exp(−dt × rate)`. Feed the field back into the illustrator as extra light, so trails warm the parts they pass.
 - **Batching**: quantise RGBA into a key, bucket the cells by key, and set `fillStyle` once per bucket.
@@ -97,7 +97,7 @@ Define all colours in a single `palette.ts` as RGB stops, and expose overrides. 
 Animation tuning cannot be done by reading code.
 - Expose the engine on `window` in the demo. That lets you step the world (`world.step(1/60)` in a loop) and dump the glyph grid as text when the preview can't run `requestAnimationFrame` (hidden panes).
 - Take full-resolution screenshots (for example with Playwright at `scale: "css"` and a 1440×900 viewport). Downscaled screenshots hide whether cells read as shapes.
-- Check the states one by one: steady state, mid-intro, pointer sweep (trail visible right after?), rare event (force it with a URL param like `?poemDelay=0`), and reduced motion.
+- Check the states one by one: steady state, mid-intro, pointer sweep (trail visible right after?), rare events (force them with a URL param), and reduced motion.
 - Common fixes:
   - "Doesn't look like the subject" → check the illustration on its own first; then the silhouette size, the dark gaps and the cell size.
   - Noisy carpet → fewer instances, bigger heroes, a flat ramp inside shapes.
