@@ -13,10 +13,14 @@ export function textMask(
   area: { x: number; y: number; w: number; h: number },
   cw: number,
   ch: number,
+  vertical = false,
 ): { x: number; y: number }[] {
   const chars = [...text];
   if (chars.length === 0) return [];
-  const size = Math.min(area.h * 0.9, area.w / (chars.length * 1.08));
+  // Vertical lines run top to bottom, the traditional way.
+  const size = vertical
+    ? Math.min(area.w * 0.9, area.h / (chars.length * 1.08))
+    : Math.min(area.h * 0.9, area.w / (chars.length * 1.08));
   if (size < ch * MIN_ROWS) return [];
 
   const cols = Math.ceil(area.w / cw);
@@ -33,8 +37,13 @@ export function textMask(
   g.textAlign = "center";
   g.textBaseline = "middle";
   const step = size * 1.08;
-  const x0 = area.w / 2 - (step * (chars.length - 1)) / 2;
-  chars.forEach((c, i) => g.fillText(c, x0 + i * step, area.h / 2));
+  if (vertical) {
+    const y0 = area.h / 2 - (step * (chars.length - 1)) / 2;
+    chars.forEach((c, i) => g.fillText(c, area.w / 2, y0 + i * step));
+  } else {
+    const x0 = area.w / 2 - (step * (chars.length - 1)) / 2;
+    chars.forEach((c, i) => g.fillText(c, x0 + i * step, area.h / 2));
+  }
 
   const data = g.getImageData(0, 0, canvas.width, canvas.height).data;
   const c0 = Math.floor(area.x / cw);

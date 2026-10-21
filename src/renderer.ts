@@ -16,13 +16,22 @@
 import { clamp, hash3, mixRGB, ramp, smoothstep, TAU, type RGB } from "./math";
 import { MOONLIGHT, type Palette } from "./palette";
 import { Illustrator, SX, SY } from "./illustrator";
+import { PhotoSource, type LoadedPhoto } from "./photograph";
 import { GROUND_ROWS, PetalState, RIPPLE_LIFE, rippleRadius, type World } from "./world";
 
 const PETAL_GLYPHS = ["'", "`", ",", "."];
+/** Luminance (0–255) → lifted brightness: the photo is dark, so stretch it to use the whole range. */
+const PHOTO_LIFT = Float32Array.from({ length: 256 }, (_, l) => Math.pow(clamp((l / 255 - 0.04) / 0.55, 0, 1), 0.85));
 /** Flat cells inside a shape, dim → bright. Few levels, so a petal reads as one surface. */
 const FILL = ".:;o%@@";
 /** Glyphs an edge cell may be matched against. */
 const STROKES = " .,'`-_|/\\()^v<>";
+/**
+ * Glyphs a photograph's cells are matched against by shape, most used first:
+ * `@` fills the petals and wins ~90% of cells, so trying it first lets the
+ * rest stop early.
+ */
+const PHOTO_GLYPHS = "@%#_\"[]-`^*()|/\\{}:;.,'~=OV<> ";
 
 export class AsciiRenderer {
   private ctx: CanvasRenderingContext2D;
@@ -49,8 +58,23 @@ export class AsciiRenderer {
   private buckets = new Map<number, number[]>();
   private world: World | null = null;
   private illustrator: Illustrator;
+  private photo: PhotoSource | null = null;
   /** Stroke glyph bitmaps at SX × SY, in the current font and cell size. */
   private strokes: { g: string; t: Float32Array }[] = [];
+  /** Glyph bitmaps for photo cells, at the photo source's sample size. */
+  private photoGlyphs: { g: string; t: Float32Array }[] = [];
+  /**
+   * The photograph's glyphs live on their own layer, refreshed every other
+   * frame (convert on one, paint on the next) so the cost is spread out;
+   * overlays still redraw every frame. photoMask marks the cells it covers,
+   * so anything meant to sit behind the plant stays hidden there.
+   */
+  private photoLayer: HTMLCanvasElement = document.createElement("canvas");
+  private photoGlyph: string[] = [];
+  private photoColor = new Uint32Array(0);
+  private photoMask = new Uint8Array(0);
+  private photoTick = 0;
+  private photoFresh = false;
   private shading = {
     lightAt: (x: number, y: number) => (this.world ? this.lightAt(this.world, x, y) : 1),
     glowAt: (x: number, y: number) => {
@@ -62,7 +86,7 @@ export class AsciiRenderer {
   };
 
   constructor(private canvas: HTMLCanvasElement, palette: Partial<Palette> = {}) {
-    const ctx = canvas.getContext("2d", { alpha: false });
+    const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
     this.bg = document.createElement("canvas");
@@ -90,14 +114,22 @@ export class AsciiRenderer {
   /** Call once the webfont has loaded, so edge matching uses the real glyph shapes. */
   fontsReady() {
     this.strokes = [];
+    this.photoGlyphs = [];
+  }
+
+  /** Draw a photograph instead of the illustration. Call resize() afterwards: cells get finer. */
+  usePhoto(photo: LoadedPhoto) {
+    this.photo = new PhotoSource(photo);
+    this.photoGlyphs = [];
   }
 
   resize(width: number, height: number, dpr: number) {
     this.width = width;
     this.height = height;
     this.dpr = dpr;
-    // Fine cells: a petal needs several of them to keep its shape.
-    this.cw = clamp(Math.round(width / 175), 6, 10);
+    // Fine cells: a petal needs several of them to keep its shape. A photograph
+    // carries more detail, so it gets finer ones still.
+    this.cw = this.photo ? clamp(Math.round(width / 205), 6, 9) : clamp(Math.round(width / 175), 6, 10);
     this.ch = Math.round(this.cw * 1.5);
     this.cols = Math.ceil(width / this.cw);
     this.rows = Math.ceil(height / this.ch);
@@ -113,7 +145,15 @@ export class AsciiRenderer {
     this.energy = new Float32Array(n);
     this.energyTmp = new Float32Array(n);
     this.illustrator.resize(this.cols, this.rows, this.cw, this.ch);
+    this.photo?.resize(this.cols, this.rows, this.cw, this.ch);
+    this.photoLayer.width = this.canvas.width;
+    this.photoLayer.height = this.canvas.height;
+    this.photoGlyph = new Array(n).fill("");
+    this.photoColor = new Uint32Array(n);
+    this.photoMask = new Uint8Array(n);
+    this.photoFresh = false;
     this.strokes = [];
+    this.photoGlyphs = [];
 
     this.moonCells = [];
     this.stars = [];
@@ -152,6 +192,9 @@ export class AsciiRenderer {
     vig.addColorStop(1, "rgba(0,0,0,0.55)");
     g.fillStyle = vig;
     g.fillRect(0, 0, W, H);
+    // The sky never changes, so it sits behind the canvas as CSS instead of being redrawn every frame.
+    this.canvas.style.backgroundImage = `url(${this.bg.toDataURL()})`;
+    this.canvas.style.backgroundSize = "100% 100%";
   }
 
   private buildMoon(world: World) {
@@ -198,15 +241,56 @@ export class AsciiRenderer {
     this.drawSky(world, reveal);
     this.drawRipples(world);
     this.drawGround(world);
-    this.illustrator.draw(world, this.shading);
-    this.convert();
+    if (this.photo) {
+      // A three-frame cycle: convert the top half, then the bottom half, then
+      // repaint the layer. The photo layer updates at 20 fps (the sway is slow)
+      // and no frame carries the whole cost.
+      const half = Math.ceil(this.rows / 2);
+      if (!this.photoFresh) {
+        this.photo.draw(world);
+        this.convertPhoto(world, 0, this.rows);
+        this.paintPhotoLayer();
+        this.photoFresh = true;
+        this.photoTick = 0;
+      } else {
+        this.photoTick = (this.photoTick + 1) % 3;
+        if (this.photoTick === 0) {
+          this.photo.draw(world);
+          this.convertPhoto(world, 0, half);
+        } else if (this.photoTick === 1) {
+          this.convertPhoto(world, half, this.rows);
+        } else {
+          this.paintPhotoLayer();
+        }
+      }
+    } else {
+      this.illustrator.draw(world, this.shading);
+      this.convert();
+    }
     this.drawPetals(world);
     this.drawMotes(world);
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.bg, 0, 0);
+    ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    this.flush();
+    if (this.photo) {
+      this.drawCells(ctx, this.glyph, this.color, (i) => this.zbuf[i] < 0.5);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.drawImage(this.photoLayer, 0, 0);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.drawCells(ctx, this.glyph, this.color, (i) => this.zbuf[i] >= 0.5);
+    } else {
+      this.drawCells(ctx, this.glyph, this.color);
+    }
+  }
+
+  private paintPhotoLayer() {
+    const g = this.photoLayer.getContext("2d");
+    if (!g) return;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, this.photoLayer.width, this.photoLayer.height);
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.drawCells(g, this.photoGlyph, this.photoColor);
   }
 
   // ── buffer ──────────────────────────────────────────────────────────
@@ -215,6 +299,7 @@ export class AsciiRenderer {
     if (c < 0 || r < 0 || c >= this.cols || r >= this.rows || a < 0.02) return;
     const i = r * this.cols + c;
     if (z < this.zbuf[i]) return;
+    if (z < 0.5 && this.photo && this.photoMask[i]) return;
     this.zbuf[i] = z;
     this.glyph[i] = g;
     this.color[i] =
@@ -228,11 +313,12 @@ export class AsciiRenderer {
     this.put(Math.floor(x / this.cw), Math.floor(y / this.ch), g, col, a, z);
   }
 
-  private flush() {
-    const { ctx, cw, ch, cols, glyph, color, buckets, styleCache } = this;
+  /** Draw cells grouped by colour, so each colour sets fillStyle once. */
+  private drawCells(ctx: CanvasRenderingContext2D, glyph: string[], color: Uint32Array, include?: (i: number) => boolean) {
+    const { cw, ch, cols, buckets, styleCache } = this;
     for (const list of buckets.values()) list.length = 0;
     for (let i = 0; i < glyph.length; i++) {
-      if (!glyph[i]) continue;
+      if (!glyph[i] || (include && !include(i))) continue;
       const k = color[i];
       let list = buckets.get(k);
       if (!list) buckets.set(k, (list = []));
@@ -334,6 +420,8 @@ export class AsciiRenderer {
   // ── sky, fragrance, ground ──────────────────────────────────────────
 
   private drawSky(world: World, reveal: number) {
+    // A photograph brings its own light and sky.
+    if (this.photo) return;
     const { palette: P, cols } = this;
     const t = world.time;
     for (const s of this.stars) {
@@ -441,26 +529,31 @@ export class AsciiRenderer {
   // ── illustration → glyphs ───────────────────────────────────────────
 
   private buildStrokes() {
+    this.strokes = this.buildGlyphs(STROKES, SX, SY, true);
+  }
+
+  /** Rasterise glyphs from the real font into sx × sy coverage bitmaps. */
+  private buildGlyphs(glyphs: string, sx: number, sy: number, normalise: boolean) {
     const S = 4;
+    const out: { g: string; t: Float32Array }[] = [];
     const c = document.createElement("canvas");
     c.width = this.cw * S;
     c.height = this.ch * S;
     const g = c.getContext("2d", { willReadFrequently: true });
-    if (!g) return;
+    if (!g) return out;
     g.font = `600 ${Math.round(this.ch * 0.8 * S)}px ${this.fontFamily}`;
     g.textAlign = "center";
     g.textBaseline = "middle";
     g.fillStyle = "#fff";
-    this.strokes = [];
-    for (const ch of STROKES) {
+    for (const ch of glyphs) {
       g.clearRect(0, 0, c.width, c.height);
       g.fillText(ch, c.width / 2, c.height / 2);
       const d = g.getImageData(0, 0, c.width, c.height).data;
-      const t = new Float32Array(SX * SY);
-      const bw = c.width / SX;
-      const bh = c.height / SY;
-      for (let y = 0; y < SY; y++) {
-        for (let x = 0; x < SX; x++) {
+      const t = new Float32Array(sx * sy);
+      const bw = c.width / sx;
+      const bh = c.height / sy;
+      for (let y = 0; y < sy; y++) {
+        for (let x = 0; x < sx; x++) {
           let sum = 0;
           let n = 0;
           for (let yy = Math.floor(y * bh); yy < Math.floor((y + 1) * bh); yy++) {
@@ -469,14 +562,101 @@ export class AsciiRenderer {
               n++;
             }
           }
-          t[y * SX + x] = sum / (n * 255);
+          t[y * sx + x] = sum / (n * 255);
         }
       }
-      // Normalise so thin and bold strokes compete on shape, not on ink.
-      let peak = 0;
-      for (const v of t) peak = Math.max(peak, v);
-      if (peak > 0) for (let k = 0; k < t.length; k++) t[k] /= peak;
-      this.strokes.push({ g: ch, t });
+      if (normalise) {
+        // So thin and bold strokes compete on shape, not on ink.
+        let peak = 0;
+        for (const v of t) peak = Math.max(peak, v);
+        if (peak > 0) for (let k = 0; k < t.length; k++) t[k] /= peak;
+      }
+      out.push({ g: ch, t });
+    }
+    return out;
+  }
+
+  /**
+   * A photograph converts by shape alone: for each cell, the glyph whose
+   * bitmap best fits the cell's pattern of light (relative to its brightest
+   * sample), inked in the cell's own colour at that brightness. The pointer's
+   * lantern and passing fragrance brighten the ink.
+   */
+  private convertPhoto(world: World, rowFrom: number, rowTo: number) {
+    const photo = this.photo!;
+    const { sx: SXp, sy: SYp } = photo;
+    if (this.photoGlyphs.length === 0) this.photoGlyphs = this.buildGlyphs(PHOTO_GLYPHS, SXp, SYp, false);
+    const { cols, rows, cw, ch, photoGlyphs: glyphs, energy, photoGlyph, photoColor, photoMask } = this;
+    photoGlyph.fill("", rowFrom * cols, rowTo * cols);
+    photoMask.fill(0, rowFrom * cols, rowTo * cols);
+    const W = photo.canvas.width;
+    // Read only this band of rows; `data` row 0 is sample row rowFrom * SYp.
+    const data = photo.ctx.getImageData(0, rowFrom * SYp, W, (rowTo - rowFrom) * SYp).data;
+    const n = SXp * SYp;
+    const v = new Float32Array(n);
+    const col: RGB = [0, 0, 0];
+    const p = world.pointer;
+    for (let r = rowFrom; r < rowTo; r++) {
+      for (let c = 0; c < cols; c++) {
+        let sum = 0;
+        let peak = 0;
+        let low = 1;
+        let R = 0;
+        let G = 0;
+        let B = 0;
+        for (let y = 0; y < SYp; y++) {
+          let i = (((r - rowFrom) * SYp + y) * W + c * SXp) * 4;
+          for (let x = 0; x < SXp; x++, i += 4) {
+            const a = data[i + 3] / 255;
+            const lv = PHOTO_LIFT[(((54 * data[i] + 183 * data[i + 1] + 19 * data[i + 2]) >> 8) * a) | 0];
+            v[y * SXp + x] = lv;
+            sum += lv;
+            if (lv > peak) peak = lv;
+            if (lv < low) low = lv;
+            R += data[i] * a;
+            G += data[i + 1] * a;
+            B += data[i + 2] * a;
+          }
+        }
+        if (sum / n < 0.035) continue;
+        let best = Infinity;
+        let g = " ";
+        // Flat cells (inside a petal, or even background) are always the solid glyph.
+        if (low > peak * 0.8) g = glyphs[0].g;
+        else for (const tp of glyphs) {
+          let err = 0;
+          const t = tp.t;
+          for (let k = 0; k < n && err < best; k++) {
+            const d = v[k] / peak - t[k];
+            err += d * d;
+          }
+          if (err < best) {
+            best = err;
+            g = tp.g;
+          }
+        }
+        if (g === " ") continue;
+        let bright = peak;
+        const x = (c + 0.5) * cw;
+        const y = (r + 0.5) * ch;
+        if (p.active) {
+          const dx = x - p.x;
+          const dy = y - p.y;
+          bright *= 1 + 0.45 * Math.exp(-(dx * dx + dy * dy) / (2 * 95 * 95));
+        }
+        bright *= 1 + Math.min(1, energy[r * cols + c] * 2) * 0.6;
+        // Keep the photo's hue; let the glyph carry the brightness.
+        const m = Math.max(R, G, B) / n || 1;
+        const k = (255 * Math.min(1, bright * 1.15)) / m;
+        const i = r * cols + c;
+        photoGlyph[i] = g;
+        photoMask[i] = 1;
+        photoColor[i] =
+          (clamp(((R / n) * k) | 0, 0, 255) >> 2) << 16 |
+          (clamp(((G / n) * k) | 0, 0, 255) >> 2) << 10 |
+          (clamp(((B / n) * k) | 0, 0, 255) >> 2) << 4 |
+          15;
+      }
     }
   }
 

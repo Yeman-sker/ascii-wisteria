@@ -77,6 +77,17 @@ A photo of the real subject settles structure, light and colour faster than any 
 - **Batching**: quantise RGBA into a key, bucket the cells by key, and set `fillStyle` once per bucket.
 - **Budget**: in this project the illustration plus conversion costs about 7 ms per frame at 1440 × 900.
 
+### 4b. When the illustration can't match the subject, animate a photograph
+
+Some subjects defeat simple primitives: hand-drawn wisteria florets read as grapes, however you tune them. If a photo-to-ASCII test of a good reference beats your illustration, use the photograph as the source picture, and keep the simulation for motion and overlays.
+
+- **Motion without segmentation**: give the scene a row of damped pendulum columns (about 40 across, with a period of ~5 s). Draw the photo into the sample canvas in tiles, each shifted by its column's angle × its distance below the top. Anything hanging swings as a whole; the top barely moves. Wind, pointer speed and ripple fronts drive the pendulums. Overlap tiles by a pixel so no seams show.
+- **Emitters from the image**: threshold its luminance (e.g. > 0.38) on a ~200 px thumbnail. Those pixels, displaced by the sway, are where particles spawn.
+- **Conversion**: at 5 × 8 samples per cell, use the brightest sample as the ink and pick the glyph whose raw coverage bitmap best fits `samples / peak`. Order the candidates by frequency (`@` first), stop each comparison once it exceeds the best so far, and send flat cells (`low > 0.8·peak`) straight to `@`. Look the brightness curve up in a table, not with `Math.pow` per sample.
+- **Budget**: give the photo its own layer, refreshed over a three-frame cycle (convert the top half, convert the bottom half, repaint). Redraw overlays every frame. Keep a `photoMask`, so overlays meant to sit behind the plant stay hidden behind it.
+- **Opening**: reveal the photo from the top down, column by column, with a soft gradient edge.
+- **Rights**: ask before publishing someone's photograph (or screenshots derived from it) in a public repository.
+
 ### 5. Palette
 
 Define all colours in a single `palette.ts` as RGB stops, and expose overrides. One hue family should do the work. Push secondary elements (leaves, bark, ground) toward that family in grey, and keep one accent for rare glints. Avoid letter glyphs (`c e a`) in organic textures: they read as text.

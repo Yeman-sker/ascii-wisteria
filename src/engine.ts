@@ -1,4 +1,5 @@
 import type { Palette } from "./palette";
+import { loadPhoto } from "./photograph";
 import { textMask } from "./poem";
 import { AsciiRenderer } from "./renderer";
 import { World, type WorldOptions } from "./world";
@@ -6,9 +7,15 @@ import { World, type WorldOptions } from "./world";
 const STEP = 1 / 60;
 const MAX_STEPS = 4;
 
-export interface WisteriaOptions extends WorldOptions {
+export interface WisteriaOptions extends Omit<WorldOptions, "layout"> {
   /** Override any colour of the moonlight palette. */
   palette?: Partial<Palette>;
+  /**
+   * A photograph of wisteria to draw instead of the built-in illustration
+   * (dark background, hanging racemes). It is cover-fitted, swayed and
+   * converted to ASCII every frame.
+   */
+  image?: string;
 }
 
 /**
@@ -29,10 +36,11 @@ export class WisteriaEngine {
 
   constructor(private canvas: HTMLCanvasElement, options: WisteriaOptions = {}) {
     this.reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    this.world = new World({ ...options, intro: options.intro !== false && !this.reducedMotion.matches });
+    const intro = options.intro !== false && !this.reducedMotion.matches;
+    this.world = new World({ ...options, intro, layout: options.image ? "photo" : "illustration" });
     this.renderer = new AsciiRenderer(canvas, options.palette);
     this.renderer.setFontFamily(getComputedStyle(canvas).fontFamily);
-    this.world.maskProvider = (text, area) => textMask(text, area, this.renderer.cellWidth, this.renderer.cellHeight);
+    this.world.maskProvider = (text, area, vertical) => textMask(text, area, this.renderer.cellWidth, this.renderer.cellHeight, vertical);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas);
@@ -49,6 +57,22 @@ export class WisteriaEngine {
     window.addEventListener("blur", this.onPointerLeave);
 
     this.resize();
+    if (options.image) {
+      loadPhoto(options.image).then(
+        (photo) => {
+          if (this.disposed) return;
+          this.renderer.usePhoto(photo);
+          this.world.setPhoto(photo.aspect, photo.flowers);
+          // The opening starts once there is something to reveal.
+          if (intro) this.world.clock = 0;
+          this.resize();
+        },
+        (err) => {
+          console.warn("ascii-wisteria: could not load image, drawing the illustration instead", err);
+          if (!this.disposed) this.world.useIllustration();
+        },
+      );
+    }
     // Canvas text can't trigger a webfont load; once the mono face is in, redraw.
     document.fonts?.load(`600 16px ${getComputedStyle(canvas).fontFamily}`).then(() => {
       this.renderer.fontsReady();
